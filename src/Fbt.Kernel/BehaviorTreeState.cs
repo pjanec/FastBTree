@@ -61,6 +61,15 @@ namespace Fbt
         [FieldOffset(40)]
         public fixed ulong AsyncHandles[3];
         
+        /// <summary>
+        /// Convenience accessor for the first async handle, often used for Wait node timer storage.
+        /// </summary>
+        public ulong AsyncData
+        {
+            get => AsyncHandles[0];
+            set => AsyncHandles[0] = value;
+        }
+        
         // Total: 64 bytes exactly
         
         // ===== Helper Properties =====

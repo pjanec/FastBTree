@@ -1,6 +1,7 @@
 using Fbt.Runtime;
 using Fbt.Tests.TestFixtures;
 using Fbt;
+using Fbt.Serialization;
 using Xunit;
 
 namespace Fbt.Tests.Unit
@@ -273,6 +274,63 @@ namespace Fbt.Tests.Unit
             
             var result = interpreter.Tick(ref bb, ref state, ref ctx);
             Assert.Equal(NodeStatus.Failure, result); // Fallback returns Failure
+        }
+
+        [Fact]
+        public void Wait_ExecutesCorrectly()
+        {
+            string json = @"{ 
+                ""TreeName"": ""WaitTest"",
+                ""Root"": { ""Type"": ""Wait"", ""WaitTime"": 1.0 }
+            }";
+            
+            var blob = TreeCompiler.CompileFromJson(json);
+            var interpreter = new Interpreter<TestBlackboard, MockContext>(blob, new ActionRegistry<TestBlackboard, MockContext>());
+            
+            var bb = new TestBlackboard();
+            var state = new BehaviorTreeState();
+            var ctx = new MockContext { Time = 0.0f };
+            
+            // First tick
+            var result1 = interpreter.Tick(ref bb, ref state, ref ctx);
+            Assert.Equal(NodeStatus.Running, result1);
+            
+            // Tick before duration
+            ctx.Time = 0.5f;
+            var result2 = interpreter.Tick(ref bb, ref state, ref ctx);
+            Assert.Equal(NodeStatus.Running, result2);
+            
+            // Tick after duration
+            ctx.Time = 1.1f;
+            var result3 = interpreter.Tick(ref bb, ref state, ref ctx);
+            Assert.Equal(NodeStatus.Success, result3);
+        }
+
+        [Fact]
+        public void Repeater_ExecutesCorrectly()
+        {
+            string json = @"{ 
+                ""TreeName"": ""RepeatTest"",
+                ""Root"": { 
+                    ""Type"": ""Repeater"",
+                    ""RepeatCount"": 3,
+                    ""Children"": [ { ""Type"": ""Action"", ""Action"": ""IncrementCounter"" } ]
+                }
+            }";
+            
+            var blob = TreeCompiler.CompileFromJson(json);
+            var registry = new ActionRegistry<TestBlackboard, MockContext>();
+            registry.Register("IncrementCounter", TestActions.IncrementCounter);
+            
+            var interpreter = new Interpreter<TestBlackboard, MockContext>(blob, registry);
+            var bb = new TestBlackboard();
+            var state = new BehaviorTreeState();
+            var ctx = new MockContext();
+            
+            var result = interpreter.Tick(ref bb, ref state, ref ctx);
+            
+            Assert.Equal(NodeStatus.Success, result);
+            Assert.Equal(3, bb.Counter); // Executed 3 times
         }
 
         // --- Helpers ---

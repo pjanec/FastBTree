@@ -61,8 +61,106 @@ namespace Fbt.Runtime
                     return ExecuteAction(nodeIndex, ref node, ref bb, ref state, ref ctx);
                 case NodeType.Inverter:
                     return ExecuteInverter(nodeIndex, ref node, ref bb, ref state, ref ctx);
+                case NodeType.Wait:
+                    return ExecuteWait(nodeIndex, ref node, ref bb, ref state, ref ctx);
+                case NodeType.Repeater:
+                    return ExecuteRepeater(nodeIndex, ref node, ref bb, ref state, ref ctx);
                 default:
                     return NodeStatus.Failure; // Unknown/Unimplemented node type
+            }
+        }
+
+        private NodeStatus ExecuteWait(
+            int nodeIndex,
+            ref NodeDefinition node,
+            ref TBlackboard bb,
+            ref BehaviorTreeState state,
+            ref TContext ctx)
+        {
+            // Get duration from FloatParams
+            float duration = _blob.FloatParams[node.PayloadIndex];
+            
+            // Check if we're resuming a wait
+            // Use ushort cast to match RunningNodeIndex type
+            if (state.RunningNodeIndex == nodeIndex)
+            {
+                // Unpack async token
+                var token = new AsyncToken(state.AsyncData);
+                float startTime = token.FloatA;
+                
+                // Check if duration has elapsed
+                float elapsed = ctx.Time - startTime;
+                if (elapsed >= duration)
+                {
+                    state.RunningNodeIndex = 0;
+                    return NodeStatus.Success;
+                }
+                
+                return NodeStatus.Running;
+            }
+            else
+            {
+                // First execution - pack start time
+                var token = AsyncToken.FromFloat(ctx.Time, 0);
+                state.AsyncData = token.PackedValue;
+                state.RunningNodeIndex = (ushort)nodeIndex;
+                return NodeStatus.Running;
+            }
+        }
+
+        private NodeStatus ExecuteRepeater(
+            int nodeIndex,
+            ref NodeDefinition node,
+            ref TBlackboard bb,
+            ref BehaviorTreeState state,
+            ref TContext ctx)
+        {
+            int repeatCount = _blob.IntParams[node.PayloadIndex];
+            
+            unsafe
+            {
+                ref int currentIteration = ref state.LocalRegisters[0];
+                
+                // If not running, start fresh
+                if (state.RunningNodeIndex == 0)
+                {
+                    currentIteration = 0;
+                }
+                
+                while (currentIteration < repeatCount)
+                {
+                    // Repeater has exactly one child
+                    int childIndex = nodeIndex + 1;
+                    var result = ExecuteNode(childIndex, ref bb, ref state, ref ctx);
+                    
+                    if (result == NodeStatus.Running)
+                    {
+                        return NodeStatus.Running;
+                    }
+                    
+                    if (result == NodeStatus.Failure)
+                    {
+                        currentIteration = 0; // Reset on failure
+                        return NodeStatus.Failure;
+                    }
+                    
+                    // Child succeeded, increment counter
+                    currentIteration++;
+                    
+                    // If more iterations remain, continue
+                    if (currentIteration < repeatCount)
+                    {
+                        // Reset child for next iteration
+                        // Since child returned Success, RunningNodeIndex is already 0.
+                        // We loop again, ExecuteNode will start child fresh.
+                        continue;
+                    }
+                }
+                
+                // All iterations complete
+                currentIteration = 0;
+                state.RunningNodeIndex = 0;
+                return NodeStatus.Success;
             }
         }
 

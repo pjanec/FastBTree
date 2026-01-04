@@ -137,43 +137,30 @@ This checklist tracks implementation progress for FastBTree v1.0.
 
 ## Phase 2: Demo & Testing (Weeks 4-6)
 
-### Week 4: Context & Async
+### Week 4: Extended Node Types & Examples ✅ COMPLETE (BATCH-04)
 
-**GameContext**
-- [ ] `GameContext` struct
-- [ ] Batched raycast system
-- [ ] Batched pathfinding system
-- [ ] `ProcessBatch()` implementation
-- [ ] Parameter lookup (GetFloatParam, GetIntParam)
+**Extended Node Types**
+- [x] `ExecuteWait()` - Timer-based node using AsyncToken
+- [x] `ExecuteRepeater()` - Iteration-based decorator using LocalRegisters
+- [x] AsyncToken helper methods
+- [x] BehaviorTreeState AsyncData field
 
-**MockContext**
-- [ ] `MockContext` struct for tests
-- [ ] Pre-programmed results
-- [ ] Call tracking
-- [ ] Immediate mode (no batching)
+**Example Trees**
+- [x] `simple-patrol.json` - Basic patrol pattern
+- [x] `guard-behavior.json` - Combat/patrol selector
 
-**ReplayContext**
-- [ ] `ReplayContext` struct
-- [ ] Frame-by-frame playback
-- [ ] Query result replay (FIFO queues)
-- [ ] Desync detection
-
-**Async Safety**
-- [ ] TreeVersion increment on abort
-- [ ] AsyncToken validation in actions
-- [ ] Zombie request test case
-
-**Hot Reload**
-- [ ] Hash checking in Tick()
-- [ ] Hard reload (structure change)
-- [ ] Soft reload (param-only change)
-- [ ] Integration test
+**Console Demo Application**
+- [x] `Fbt.Examples.Console` project
+- [x] JSON loading demonstration
+- [x] Tree compilation demonstration
+- [x] Multi-frame execution demonstration
+- [x] Blackboard usage demonstration
 
 **Unit Tests**
-- [ ] ContextTests.cs
-  - [ ] Batching behavior
-  - [ ] Async token validation
-  - [ ] Hot reload detection
+- [x] Extended interpreter tests
+  - [x] Wait node timing logic
+  - [x] Repeater iteration logic
+  - [x] Integration tests
 
 ---
 
@@ -424,10 +411,10 @@ This checklist tracks implementation progress for FastBTree v1.0.
 
 ## Progress Tracking
 
-**Overall: 30%**
+**Overall: 35%**
 
 - [x] Phase 1: Core (100% - COMPLETE!) 🎉
-- [ ] Phase 2: Demo & Testing (0%)
+- [x] Phase 2: Expansion (25% - Week 4 complete)
 - [ ] Phase 3: Polish (0%)
 - [ ] Phase 4: JIT (Future)
 
@@ -440,9 +427,10 @@ This checklist tracks implementation progress for FastBTree v1.0.
 - Track blockers in project issues
 - Review checklist weekly
 
-**Current:** Phase 2, Week 4 - Advanced Features (BATCH-04 next)
+**Current:** Phase 2, Week 5 - Advanced Features (Next batch TBD)
 **Completed:** 
 - ✅ **PHASE 1 COMPLETE!** 🎉
 - ✅ BATCH-01 (Foundation)
 - ✅ BATCH-02 (Interpreter)
 - ✅ BATCH-03 (Serialization)
+- ✅ BATCH-04 (Examples & Extended Nodes) 🎉

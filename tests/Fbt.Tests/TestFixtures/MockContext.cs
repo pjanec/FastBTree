@@ -15,8 +15,9 @@ namespace Fbt.Tests.TestFixtures
         public float SimulatedDeltaTime; // Used in tests
         
         // IAIContext implementation
-        public float Time => 0;
-        public int FrameCount => 0;
+        // IAIContext implementation
+        public float Time { get; set; }
+        public int FrameCount { get; set; }
         
         public int RequestRaycast(Vector3 origin, Vector3 direction, float maxDistance)
             => 0;
