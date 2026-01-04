@@ -9,21 +9,21 @@ This checklist tracks implementation progress for FastBTree v1.0.
 
 ## Phase 1: Core (Weeks 1-3)
 
-### Week 1: Foundation
+### Week 1: Foundation ✅ COMPLETE (BATCH-01)
 
 **Data Structures**
-- [ ] Create `Fbt.Kernel` project (.NET 8, AllowUnsafeBlocks)
-- [ ] `NodeType` enum
-- [ ] `NodeStatus` enum
-- [ ] `NodeDefinition` struct (8 bytes, validate with `Unsafe.SizeOf`)
-- [ ] `BehaviorTreeState` struct (64 bytes, explicit layout)
-- [ ] `BehaviorTreeBlob` class
-- [ ] `AsyncToken` struct (pack/unpack methods)
-- [ ] Unit tests: DataStructuresTests.cs
-  - [ ] Size validation (8 bytes, 64 bytes)
-  - [ ] Reset behavior
-  - [ ] AsyncToken round-trip
-  - [ ] Stack push/pop
+- [x] Create `Fbt.Kernel` project (.NET 8, AllowUnsafeBlocks)
+- [x] `NodeType` enum
+- [x] `NodeStatus` enum
+- [x] `NodeDefinition` struct (8 bytes, validate with `Unsafe.SizeOf`)
+- [x] `BehaviorTreeState` struct (64 bytes, explicit layout)
+- [x] `BehaviorTreeBlob` class
+- [x] `AsyncToken` struct (pack/unpack methods)
+- [x] Unit tests: DataStructuresTests.cs
+  - [x] Size validation (8 bytes, 64 bytes)
+  - [x] Reset behavior
+  - [x] AsyncToken round-trip
+  - [x] Stack push/pop
 
 **Context Interface**
 - [ ] `IAIContext` interface
@@ -32,8 +32,8 @@ This checklist tracks implementation progress for FastBTree v1.0.
 - [ ] `ActionRegistry<TBB, TCtx>` class (delegate storage)
 
 **Test Framework**
-- [ ] Create `Fbt.Tests` project (xUnit)
-- [ ] Test fixtures: MockContext, TestBlackboard, TestActions
+- [x] Create `Fbt.Tests` project (xUnit)
+- [x] Test fixtures: MockContext, TestBlackboard, TestActions
 - [ ] CI/CD configuration (.github/workflows/test.yml)
 
 ---
@@ -424,9 +424,9 @@ This checklist tracks implementation progress for FastBTree v1.0.
 
 ## Progress Tracking
 
-**Overall: 0%**
+**Overall: 8%**
 
-- [ ] Phase 1: Core (0%)
+- [x] Phase 1: Core (25% - Week 1 complete)
 - [ ] Phase 2: Demo & Testing (0%)
 - [ ] Phase 3: Polish (0%)
 - [ ] Phase 4: JIT (Future)
@@ -440,4 +440,5 @@ This checklist tracks implementation progress for FastBTree v1.0.
 - Track blockers in project issues
 - Review checklist weekly
 
-**Next Action:** Begin Phase 1, Week 1 - Create Fbt.Kernel project and implement data structures.
+**Current:** Phase 1, Week 2 - Interpreter implementation (BATCH-02 in progress)
+**Completed:** BATCH-01 (Week 1 Foundation) ✅

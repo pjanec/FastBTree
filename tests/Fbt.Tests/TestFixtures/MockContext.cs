@@ -1,10 +1,39 @@
+using System.Numerics;
+using Fbt;
+
 namespace Fbt.Tests.TestFixtures
 {
-    // NOTE: Full implementation comes in BATCH-04
-    // For now, just a placeholder struct
-    public struct MockContext
+    public struct MockContext : IAIContext
     {
-        public float DeltaTime;
+        public float DeltaTime { get; set; }
         public int CallCount;
+        public int ActionCallCount; // Used in tests
+        public int PathRequestCount; // Used in tests
+        public int AnimationTriggerCount; // Used in tests
+        public bool NextEntityAlive; // Used in tests
+        public float NextEntityDistance; // Used in tests
+        public float SimulatedDeltaTime; // Used in tests
+        
+        // IAIContext implementation
+        public float Time => 0;
+        public int FrameCount => 0;
+        
+        public int RequestRaycast(Vector3 origin, Vector3 direction, float maxDistance)
+            => 0;
+        
+        public RaycastResult GetRaycastResult(int requestId)
+            => new RaycastResult { IsReady = true };
+        
+        public int RequestPath(Vector3 from, Vector3 to)
+        {
+            PathRequestCount++;
+            return 0;
+        }
+        
+        public PathResult GetPathResult(int requestId)
+            => new PathResult { IsReady = true, Success = true };
+        
+        public float GetFloatParam(int index) => 1.0f;
+        public int GetIntParam(int index) => 1;
     }
 }
