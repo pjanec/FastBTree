@@ -333,6 +333,200 @@ namespace Fbt.Tests.Unit
             Assert.Equal(3, bb.Counter); // Executed 3 times
         }
 
+        [Fact]
+        public void Parallel_RequireAll_AllSucceed_ReturnsSuccess()
+        {
+            // Policy 0: RequireAll
+            var blob = new BehaviorTreeBlob
+            {
+                Nodes = new[] { 
+                    new NodeDefinition { Type = NodeType.Parallel, ChildCount = 2, SubtreeOffset = 3, PayloadIndex = 0 },
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 0, SubtreeOffset = 1 }, // Success
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 0, SubtreeOffset = 1 }  // Success
+                },
+                MethodNames = new[] { "AlwaysSuccess" },
+                IntParams = new[] { 0 } // RequireAll
+            };
+
+            var interpreter = CreateInterpreter(blob);
+            var bb = new TestBlackboard();
+            var state = new BehaviorTreeState();
+            var ctx = new MockContext();
+
+            var result = interpreter.Tick(ref bb, ref state, ref ctx);
+            Assert.Equal(NodeStatus.Success, result);
+            Assert.Equal(2, ctx.CallCount);
+        }
+
+        [Fact]
+        public void Parallel_RequireAll_OneFails_ReturnsFailure()
+        {
+            var blob = new BehaviorTreeBlob
+            {
+                Nodes = new[] { 
+                    new NodeDefinition { Type = NodeType.Parallel, ChildCount = 2, SubtreeOffset = 3, PayloadIndex = 0 },
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 0, SubtreeOffset = 1 }, // Success
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 1, SubtreeOffset = 1 }  // Failure
+                },
+                MethodNames = new[] { "AlwaysSuccess", "AlwaysFailure" },
+                IntParams = new[] { 0 } // RequireAll
+            };
+
+            var interpreter = CreateInterpreter(blob);
+            var bb = new TestBlackboard();
+            var state = new BehaviorTreeState();
+            var ctx = new MockContext();
+
+            var result = interpreter.Tick(ref bb, ref state, ref ctx);
+            Assert.Equal(NodeStatus.Failure, result);
+            // Parallel executes ALL children in one tick unless one fails, 
+            // but implementation executes sequentially and checks results. 
+            // If one fails, it continues executing others or returns failure immediately?
+            // "Execute all children" loop runs fully. Then checks policy.
+            // So checking CallCount = 2.
+            Assert.Equal(2, ctx.CallCount); 
+        }
+
+        [Fact]
+        public void Parallel_RequireOne_OneSucceeds_ReturnsSuccess()
+        {
+            // Policy 1: RequireOne
+             var blob = new BehaviorTreeBlob
+            {
+                Nodes = new[] { 
+                    new NodeDefinition { Type = NodeType.Parallel, ChildCount = 2, SubtreeOffset = 3, PayloadIndex = 0 },
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 0, SubtreeOffset = 1 }, // Failure
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 1, SubtreeOffset = 1 }  // Success
+                },
+                MethodNames = new[] { "AlwaysFailure", "AlwaysSuccess" },
+                IntParams = new[] { 1 } // RequireOne
+            };
+
+            var interpreter = CreateInterpreter(blob);
+            var bb = new TestBlackboard();
+            var state = new BehaviorTreeState();
+            var ctx = new MockContext();
+
+            var result = interpreter.Tick(ref bb, ref state, ref ctx);
+            Assert.Equal(NodeStatus.Success, result);
+        }
+
+
+
+        
+        [Fact]
+        public void Parallel_WithRunning_ResumesCorrectly()
+        {
+             // Use a simpler running action that doesn't use registers to avoid conflict with Parallel's register usage
+             var blob = new BehaviorTreeBlob
+            {
+                Nodes = new[] { 
+                    new NodeDefinition { Type = NodeType.Parallel, ChildCount = 2, SubtreeOffset = 3, PayloadIndex = 0 },
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 0, SubtreeOffset = 1 }, // Success
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 1, SubtreeOffset = 1 }  // Running (Custom)
+                },
+                MethodNames = new[] { "AlwaysSuccess", "RunOnceThenSuccess" },
+                IntParams = new[] { 0 } // RequireAll
+            };
+            
+            var registry = new ActionRegistry<TestBlackboard, MockContext>();
+            registry.Register("AlwaysSuccess", TestActions.AlwaysSuccess);
+            
+            // Custom action: Running first time, Success second time. Uses Context, not Registers.
+            registry.Register("RunOnceThenSuccess", (ref TestBlackboard b, ref BehaviorTreeState s, ref MockContext c, int p) => {
+                 c.ActionCallCount++;
+                 return c.ActionCallCount > 1 ? NodeStatus.Success : NodeStatus.Running;
+            });
+
+            var interpreter = new Interpreter<TestBlackboard, MockContext>(blob, registry);
+            var bb = new TestBlackboard();
+            var state = new BehaviorTreeState();
+            var ctx = new MockContext();
+
+            // Tick 1
+            var result1 = interpreter.Tick(ref bb, ref state, ref ctx);
+            Assert.Equal(NodeStatus.Running, result1);
+            Assert.Equal(1, ctx.ActionCallCount);
+            
+            // Tick 2
+            var result2 = interpreter.Tick(ref bb, ref state, ref ctx);
+            Assert.Equal(NodeStatus.Success, result2);
+            Assert.Equal(2, ctx.ActionCallCount);
+        }
+
+        [Fact]
+        public void Cooldown_BlocksExecution()
+        {
+            var blob = new BehaviorTreeBlob
+            {
+                Nodes = new[] { 
+                    new NodeDefinition { Type = NodeType.Cooldown, ChildCount = 1, SubtreeOffset = 2, PayloadIndex = 0 },
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 0, SubtreeOffset = 1 }
+                },
+                MethodNames = new[] { "AlwaysSuccess" },
+                FloatParams = new[] { 1.0f } // 1s Cooldown
+            };
+
+            var interpreter = CreateInterpreter(blob);
+            var bb = new TestBlackboard();
+            var state = new BehaviorTreeState();
+            var ctx = new MockContext { Time = 0 };
+
+            // Tick 1: Success (sets cooldown)
+            Assert.Equal(NodeStatus.Success, interpreter.Tick(ref bb, ref state, ref ctx));
+            Assert.Equal(1, ctx.CallCount);
+
+            // Tick 2: 0.5s later -> Blocked (Failure)
+            ctx.Time = 0.5f;
+            Assert.Equal(NodeStatus.Failure, interpreter.Tick(ref bb, ref state, ref ctx));
+            Assert.Equal(1, ctx.CallCount); // Child NOT called
+
+            // Tick 3: 1.1s later -> Allowed
+            ctx.Time = 1.1f;
+            Assert.Equal(NodeStatus.Success, interpreter.Tick(ref bb, ref state, ref ctx));
+            Assert.Equal(2, ctx.CallCount);
+        }
+
+        [Fact]
+        public void ForceSuccess_AlwaysReturnsSuccess()
+        {
+            var blob = new BehaviorTreeBlob
+            {
+                Nodes = new[] { 
+                    new NodeDefinition { Type = NodeType.ForceSuccess, ChildCount = 1, SubtreeOffset = 2 },
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 0, SubtreeOffset = 1 } // Fails
+                },
+                MethodNames = new[] { "AlwaysFailure" }
+            };
+
+            var interpreter = CreateInterpreter(blob);
+            var bb = new TestBlackboard();
+            var state = new BehaviorTreeState();
+            var ctx = new MockContext();
+
+            Assert.Equal(NodeStatus.Success, interpreter.Tick(ref bb, ref state, ref ctx));
+        }
+
+        [Fact]
+        public void ForceFailure_AlwaysReturnsFailure()
+        {
+            var blob = new BehaviorTreeBlob
+            {
+                Nodes = new[] { 
+                    new NodeDefinition { Type = NodeType.ForceFailure, ChildCount = 1, SubtreeOffset = 2 },
+                    new NodeDefinition { Type = NodeType.Action, PayloadIndex = 0, SubtreeOffset = 1 } // Succeeds
+                },
+                MethodNames = new[] { "AlwaysSuccess" }
+            };
+
+            var interpreter = CreateInterpreter(blob);
+            var bb = new TestBlackboard();
+            var state = new BehaviorTreeState();
+            var ctx = new MockContext();
+
+            Assert.Equal(NodeStatus.Failure, interpreter.Tick(ref bb, ref state, ref ctx));
+        }
+
         // --- Helpers ---
 
         private Interpreter<TestBlackboard, MockContext> CreateInterpreter(BehaviorTreeBlob blob)

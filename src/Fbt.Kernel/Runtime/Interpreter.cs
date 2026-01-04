@@ -65,9 +65,207 @@ namespace Fbt.Runtime
                     return ExecuteWait(nodeIndex, ref node, ref bb, ref state, ref ctx);
                 case NodeType.Repeater:
                     return ExecuteRepeater(nodeIndex, ref node, ref bb, ref state, ref ctx);
+                case NodeType.Parallel:
+                    return ExecuteParallel(nodeIndex, ref node, ref bb, ref state, ref ctx);
+                case NodeType.Cooldown:
+                    return ExecuteCooldown(nodeIndex, ref node, ref bb, ref state, ref ctx);
+                case NodeType.ForceSuccess:
+                    return ExecuteForceSuccess(nodeIndex, ref node, ref bb, ref state, ref ctx);
+                case NodeType.ForceFailure:
+                    return ExecuteForceFailure(nodeIndex, ref node, ref bb, ref state, ref ctx);
                 default:
                     return NodeStatus.Failure; // Unknown/Unimplemented node type
             }
+        }
+
+        private NodeStatus ExecuteParallel(
+            int nodeIndex,
+            ref NodeDefinition node,
+            ref TBlackboard bb,
+            ref BehaviorTreeState state,
+            ref TContext ctx)
+        {
+            int policy = _blob.IntParams[node.PayloadIndex];
+            int childCount = node.ChildCount;
+            // Max 16 children supported for Parallel due to 32-bit register usage
+            if (childCount > 16) childCount = 16; 
+            
+            unsafe
+            {
+                // Use LocalRegisters[3] as bitfield for child results to avoid conflict with Repeater (Reg[0])
+                // Bit 0-15: Success flags
+                // Bit 16-31: Finished flags
+                ref int childStatesBits = ref state.LocalRegisters[3];
+                
+                if (state.RunningNodeIndex == 0)
+                {
+                    childStatesBits = 0; // Reset on fresh start
+                }
+                
+                int successCount = 0;
+                int failureCount = 0;
+                int runningCount = 0;
+                
+                // Execute all children
+                int childIndex = nodeIndex + 1;
+                for (int i = 0; i < childCount; i++)
+                {
+                    int finishedBit = 1 << (i + 16);
+                    
+                    // Skip if already finished
+                    if ((childStatesBits & finishedBit) != 0)
+                    {
+                        // Check if it was a success
+                        int successBit = 1 << i;
+                        if ((childStatesBits & successBit) != 0)
+                            successCount++;
+                        else
+                            failureCount++;
+                            
+                        // Move to next child's index
+                        childIndex += _blob.Nodes[childIndex].SubtreeOffset;
+                        continue;
+                    }
+                    
+                    // Execute child
+                    var result = ExecuteNode(childIndex, ref bb, ref state, ref ctx);
+                    
+                    if (result == NodeStatus.Success)
+                    {
+                        childStatesBits |= (1 << i); // Mark success
+                        childStatesBits |= finishedBit; // Mark finished
+                        successCount++;
+                    }
+                    else if (result == NodeStatus.Failure)
+                    {
+                        childStatesBits |= finishedBit; // Mark finished (no success bit)
+                        failureCount++;
+                    }
+                    else // Running
+                    {
+                        runningCount++;
+                    }
+                    
+                    // Move to next child
+                    childIndex += _blob.Nodes[childIndex].SubtreeOffset;
+                }
+                
+                // Check policy
+                // Policy 0: RequireAll
+                // Policy 1: RequireOne
+                
+                if (policy == 0) // RequireAll
+                {
+                    // Fail if any child fails
+                    if (failureCount > 0)
+                    {
+                        childStatesBits = 0;
+                        state.RunningNodeIndex = 0;
+                        return NodeStatus.Failure;
+                    }
+                    // Success only if ALL children succeeded
+                    if (successCount == childCount)
+                    {
+                        childStatesBits = 0;
+                        state.RunningNodeIndex = 0;
+                        return NodeStatus.Success;
+                    }
+                }
+                else // RequireOne (Selector-like parallel)
+                {
+                    // Success if any child succeeds
+                    if (successCount > 0)
+                    {
+                        childStatesBits = 0;
+                        state.RunningNodeIndex = 0;
+                        return NodeStatus.Success;
+                    }
+                    // Failure only if ALL children failed
+                    if (failureCount == childCount)
+                    {
+                        childStatesBits = 0;
+                        state.RunningNodeIndex = 0;
+                        return NodeStatus.Failure;
+                    }
+                }
+                
+                // Still have running children
+                state.RunningNodeIndex = (ushort)nodeIndex;
+                return NodeStatus.Running;
+            }
+        }
+
+        private NodeStatus ExecuteCooldown(
+            int nodeIndex,
+            ref NodeDefinition node,
+            ref TBlackboard bb,
+            ref BehaviorTreeState state,
+            ref TContext ctx)
+        {
+            float cooldownDuration = _blob.FloatParams[node.PayloadIndex];
+            
+            // Check last execution time (using first async token slot, same as Wait)
+            var token = new AsyncToken(state.AsyncData);
+            
+            // If Version > 0, we have executed before.
+            // (Using Version field to flag validity, storing 0 usually means invalid/empty)
+            if (token.Version > 0)
+            {
+                float lastExecTime = token.FloatA;
+                float timeSinceLastExec = ctx.Time - lastExecTime;
+                
+                if (timeSinceLastExec < cooldownDuration)
+                {
+                    // Still on cooldown
+                    return NodeStatus.Failure;
+                }
+            }
+            
+            // Execute child
+            int childIndex = nodeIndex + 1;
+            var result = ExecuteNode(childIndex, ref bb, ref state, ref ctx);
+            
+            // Update last execution time on success
+            if (result == NodeStatus.Success)
+            {
+                // Store Current Time, and Version=1 to indicate it is set
+                var newToken = AsyncToken.FromFloat(ctx.Time, 1);
+                state.AsyncData = newToken.PackedValue;
+            }
+            
+            return result;
+        }
+
+        private NodeStatus ExecuteForceSuccess(
+            int nodeIndex,
+            ref NodeDefinition node,
+            ref TBlackboard bb,
+            ref BehaviorTreeState state,
+            ref TContext ctx)
+        {
+            int childIndex = nodeIndex + 1;
+            var result = ExecuteNode(childIndex, ref bb, ref state, ref ctx);
+            
+            if (result == NodeStatus.Running)
+                return NodeStatus.Running;
+                
+            return NodeStatus.Success; // Force success
+        }
+
+        private NodeStatus ExecuteForceFailure(
+            int nodeIndex,
+            ref NodeDefinition node,
+            ref TBlackboard bb,
+            ref BehaviorTreeState state,
+            ref TContext ctx)
+        {
+            int childIndex = nodeIndex + 1;
+            var result = ExecuteNode(childIndex, ref bb, ref state, ref ctx);
+            
+            if (result == NodeStatus.Running)
+                return NodeStatus.Running;
+                
+            return NodeStatus.Failure; // Force failure
         }
 
         private NodeStatus ExecuteWait(
