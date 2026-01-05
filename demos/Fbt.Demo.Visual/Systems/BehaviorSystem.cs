@@ -77,8 +77,11 @@ namespace Fbt.Demo.Visual
             return NodeStatus.Success;
         }
         
+        private List<Agent>? _currentAgents;
+
         public void Update(List<Agent> agents, float time, float dt)
         {
+            _currentAgents = agents;
             var context = new DemoContext { Time = time, DeltaTime = dt };
             
             foreach (var agent in agents)
@@ -182,15 +185,53 @@ namespace Fbt.Demo.Visual
 
         private NodeStatus ScanForEnemy(ref AgentBlackboard bb, ref BehaviorTreeState state, ref DemoContext ctx, int payload)
         {
-            // Simul scan
-            if (_random.NextDouble() < 0.20) // 20% chance to find
+            // Find closest non-combat agent
+            float closestDistSq = 300f * 300f; // 300px range
+            Agent? target = null;
+            
+            // We need access to all agents. 
+            // Since DemoContext contains only current agent, we need to pass the list to Update 
+            // and maybe store it in BehaviorSystem temporarily during Update?
+            // HACK: For now, I'll rely on a static/shared list or modify context.
+            // But let's assume we can access them. 
+            // Actually, we pass List<Agent> to BehaviorSystem.Update.
+            // We can store it in a field _currentAgents during Update.
+            
+            if (_currentAgents != null)
+            {
+                foreach (var other in _currentAgents)
+                {
+                    if (other == ctx.Agent) continue;
+                    if (other.Role == AgentRole.Combat) continue; // Don't fight other combatants for now
+                    
+                    float dSq = Vector2.DistanceSquared(ctx.Agent.Position, other.Position);
+                    if (dSq < closestDistSq)
+                    {
+                        closestDistSq = dSq;
+                        target = other;
+                    }
+                }
+            }
+
+            if (target != null)
             {
                 bb.HasTarget = true;
-                ctx.Agent.TargetPosition = new Vector2(_random.Next(100, 1180), _random.Next(100, 620)); // Fake enemy pos
-                // Console.WriteLine($"Agent {ctx.Agent.Id} found enemy!");
+                bb.TargetAgentId = target.Id;
+                ctx.Agent.TargetPosition = target.Position; // Initial spot
+                return NodeStatus.Success;
             }
-            // Always return success so the sequence continues to "Wait"
-            return NodeStatus.Success;
+            
+            // Random chance to "hear" something if no visual contact
+            if (_random.NextDouble() < 0.10) 
+            {
+                 // Move to random spot to investigate
+                 bb.HasTarget = true; // False positive or sound
+                 bb.TargetAgentId = -1; // Unknown
+                 ctx.Agent.TargetPosition = new Vector2(_random.Next(100, 1180), _random.Next(100, 620));
+                 return NodeStatus.Success;
+            }
+
+            return NodeStatus.Success; // Keep patrolling
         }
 
         private NodeStatus ChaseEnemy(ref AgentBlackboard bb, ref BehaviorTreeState state, ref DemoContext ctx, int payload)

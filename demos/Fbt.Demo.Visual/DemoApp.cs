@@ -12,7 +12,7 @@ namespace Fbt.Demo.Visual
     {
         private const int ScreenWidth = 1280;
         private const int ScreenHeight = 720;
-        
+
         private List<Agent> _agents = new();
         private Dictionary<string, BehaviorTreeBlob> _trees = new();
         private BehaviorSystem _behaviorSystem = null!;
@@ -24,12 +24,20 @@ namespace Fbt.Demo.Visual
         
         private Agent? _selectedAgent = null;
         private UI.TreeVisualPanel _treeVisualPanel = new UI.TreeVisualPanel();
+
+        private Camera2D _camera;
         
         public void Run()
         {
             Raylib.InitWindow(ScreenWidth, ScreenHeight, "FastBTree Visual Demo");
             Raylib.SetTargetFPS(60);
             rlImGui.Setup(true);
+            
+            // Initialize camera
+            _camera = new Camera2D();
+            _camera.Zoom = 1.0f;
+            _camera.Offset = new Vector2(0, 0);
+            _camera.Target = new Vector2(0, 0);
             
             Initialize();
             
@@ -48,7 +56,7 @@ namespace Fbt.Demo.Visual
             rlImGui.Shutdown();
             Raylib.CloseWindow();
         }
-        
+
         private void Initialize()
         {
             // Load behavior trees
@@ -69,10 +77,6 @@ namespace Fbt.Demo.Visual
         {
             if (!System.IO.File.Exists(path))
             {
-                // Create dummy file if not exists yet
-                // But we will create them in Task 7. 
-                // For now, let's just warn or handle later.
-                // We'll create empty ones for now so it compiles/runs roughly.
                 return new BehaviorTreeBlob(); 
             }
             string json = System.IO.File.ReadAllText(path);
@@ -113,17 +117,47 @@ namespace Fbt.Demo.Visual
         {
             _time += dt;
             
-            // Mouse selection logic
+            // Camera Zoom
+            float wheel = Raylib.GetMouseWheelMove();
+            if (wheel != 0)
+            {
+                Vector2 mouseWorldPos = Raylib.GetScreenToWorld2D(Raylib.GetMousePosition(), _camera);
+                
+                _camera.Offset = Raylib.GetMousePosition();
+                _camera.Target = mouseWorldPos;
+                
+                float scaleFactor = 1.0f + (0.25f * Math.Abs(wheel));
+                if (wheel < 0) scaleFactor = 1.0f / scaleFactor;
+                _camera.Zoom = Math.Clamp(_camera.Zoom * scaleFactor, 0.125f, 64.0f);
+            }
+            
+            // Camera Pan
+            if (Raylib.IsMouseButtonDown(MouseButton.Left) && !ImGui.GetIO().WantCaptureMouse)
+            {
+                Vector2 delta = Raylib.GetMouseDelta();
+                delta = delta * (-1.0f / _camera.Zoom);
+                _camera.Target = _camera.Target + delta;
+            }
+            
+            // Mouse selection logic (only on Click start, to avoid conflict with dragging)
             if (Raylib.IsMouseButtonPressed(MouseButton.Left) && !ImGui.GetIO().WantCaptureMouse)
             {
-                var mousePos = Raylib.GetMousePosition();
+                // Note: IsMouseButtonPressed is true only on the first frame.
+                // We also pan on this first frame, but that's subtle.
+                // Actually maybe we want to select only if we didn't drag much?
+                // For simplicity, let's select on press.
+                
+                var screenPos = Raylib.GetMousePosition();
+                var worldPos = Raylib.GetScreenToWorld2D(screenPos, _camera);
+                
                 _selectedAgent = null;
                 float closestDistSq = float.MaxValue;
                 
                 foreach (var agent in _agents)
                 {
-                    float distSq = Vector2.DistanceSquared(mousePos, agent.Position);
-                    if (distSq < 20 * 20 && distSq < closestDistSq) // 20px radius
+                    float distSq = Vector2.DistanceSquared(worldPos, agent.Position);
+                    // Adjust radius for zoom? Actually selection should be based on world radius.
+                    if (distSq < 20 * 20 && distSq < closestDistSq) 
                     {
                         closestDistSq = distSq;
                         _selectedAgent = agent;
@@ -146,10 +180,17 @@ namespace Fbt.Demo.Visual
             Raylib.BeginDrawing();
             Raylib.ClearBackground(Color.DarkGray);
             
+            Raylib.BeginMode2D(_camera);
+            
+            // Draw grid or bounds to signify map area
+            Raylib.DrawRectangleLines(0, 0, ScreenWidth, ScreenHeight, Color.Gray);
+            
             // Render world
             _renderSystem.RenderAgents(_agents, _selectedAgent, _trees, _time);
             
-            // ImGui UI
+            Raylib.EndMode2D();
+            
+            // ImGui UI (screen space)
             rlImGui.Begin();
             RenderUI();
             rlImGui.End();
