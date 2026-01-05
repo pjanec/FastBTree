@@ -5,6 +5,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>1.0.0</Version>
+    <Authors>Antigravity</Authors>
+    <Description>High-performance, cache-friendly behavior tree library for .NET</Description>
+    <PackageTags>ai;behavior-tree;game-ai;robotics;performance</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
 </Project>

@@ -22,7 +22,7 @@ namespace Fbt.Serialization
                 throw new ArgumentException("JSON text cannot be empty", nameof(jsonText));
 
             // 1. Parse JSON to JsonTreeData
-            JsonTreeData treeData;
+            JsonTreeData? treeData;
             try
             {
                 treeData = JsonSerializer.Deserialize<JsonTreeData>(jsonText, new JsonSerializerOptions
@@ -52,6 +52,22 @@ namespace Fbt.Serialization
             blob.StructureHash = CalculateStructureHash(blob.Nodes);
             blob.ParamHash = CalculateParamHash(blob.FloatParams, blob.IntParams);
             
+            // 5. Automatic Validation
+            var validation = TreeValidator.Validate(blob);
+            
+            if (!validation.IsValid)
+            {
+                throw new InvalidOperationException(
+                    $"Tree '{blob.TreeName}' failed validation:\n{validation}");
+            }
+            
+            if (validation.HasWarnings)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"Tree '{blob.TreeName}' has warnings:\n{validation}");
+                Console.ResetColor();
+            }
+
             return blob;
         }
         
@@ -103,6 +119,14 @@ namespace Fbt.Serialization
             else if (node.Type == NodeType.Repeater)
             {
                 payloadIndex = GetOrAddInt(intParams, node.RepeatCount);
+            }
+            else if (node.Type == NodeType.Cooldown)
+            {
+                payloadIndex = GetOrAddFloat(floatParams, node.CooldownTime);
+            }
+            else if (node.Type == NodeType.Parallel)
+            {
+                payloadIndex = GetOrAddInt(intParams, node.Policy);
             }
             
             // Add this node

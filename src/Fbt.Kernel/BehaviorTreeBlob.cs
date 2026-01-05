@@ -11,7 +11,8 @@ namespace Fbt
         // ===== Metadata =====
         
         /// <summary>Name of this tree (e.g., "OrcCombat").</summary>
-        public string TreeName;
+        /// <summary>Name of this tree (e.g., "OrcCombat").</summary>
+        public string TreeName = string.Empty;
         
         /// <summary>Version number for compatibility checking.</summary>
         public int Version = 1;
@@ -33,7 +34,7 @@ namespace Fbt
         /// <summary>
         /// The bytecode: flat array of nodes (depth-first order).
         /// </summary>
-        public NodeDefinition[] Nodes;
+        public NodeDefinition[] Nodes = Array.Empty<NodeDefinition>();
         
         // ===== Lookup Tables =====
         
@@ -42,25 +43,25 @@ namespace Fbt
         /// PayloadIndex in NodeDefinition indexes into this.
         /// Example: ["Attack", "Patrol", "HasTarget"]
         /// </summary>
-        public string[] MethodNames;
+        public string[] MethodNames = Array.Empty<string>();
         
         /// <summary>
         /// Float parameters (e.g., Wait durations, ranges).
         /// Example: [2.0f, 5.0f, 10.0f]
         /// </summary>
-        public float[] FloatParams;
+        public float[] FloatParams = Array.Empty<float>();
         
         /// <summary>
         /// Integer parameters (e.g., repeat counts, thresholds).
         /// Example: [3, 10, 100]
         /// </summary>
-        public int[] IntParams;
+        public int[] IntParams = Array.Empty<int>();
         
         /// <summary>
         /// Asset IDs for subtree references (if using runtime linking).
         /// Example: ["Patrol", "CombatTactics"]
         /// </summary>
-        public string[] SubtreeAssetIds;
+        public string[] SubtreeAssetIds = Array.Empty<string>();
         
         // ===== Compiled Delegates (Optional) =====
         
@@ -69,6 +70,6 @@ namespace Fbt
         /// Null in interpreter mode.
         /// </summary>
         [NonSerialized]
-        public object CompiledDelegate; // Typed as object to avoid generic in blob
+        public object? CompiledDelegate; // Typed as object to avoid generic in blob
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Fbt.Runtime
 {
@@ -30,11 +31,11 @@ namespace Fbt.Runtime
         /// <summary>
         /// Try to retrieve an action delegate by name.
         /// </summary>
-        public bool TryGetAction(string methodName, out NodeLogicDelegate<TBlackboard, TContext> action)
+        public bool TryGetAction(string methodName, [MaybeNullWhen(false)] out NodeLogicDelegate<TBlackboard, TContext> action)
         {
             if (string.IsNullOrEmpty(methodName))
             {
-                action = null!;
+                action = null;
                 return false;
             }
 

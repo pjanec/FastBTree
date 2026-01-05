@@ -69,5 +69,98 @@ namespace Fbt.Tests.Unit
             Assert.False(result.IsValid);
             Assert.Contains("Invalid method PayloadIndex", result.Errors[0]);
         }
+
+        [Fact]
+        public void Validate_NestedParallel_ReportsWarning()
+        {
+            string json = @"{
+                ""TreeName"": ""NestedParallel"",
+                ""Root"": {
+                    ""Type"": ""Parallel"",
+                    ""Policy"": 0,
+                    ""Children"": [
+                        {
+                            ""Type"": ""Sequence"",
+                            ""Children"": [
+                                {
+                                    ""Type"": ""Parallel"",
+                                    ""Policy"": 0,
+                                    ""Children"": [
+                                        { ""Type"": ""Action"", ""Action"": ""A"" }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }";
+            
+            var blob = TreeCompiler.CompileFromJson(json);
+            var result = TreeValidator.Validate(blob);
+            
+            Assert.True(result.IsValid); // No errors
+            Assert.True(result.HasWarnings); // But has warnings!
+            Assert.Contains("Nested Parallel", result.Warnings[0]);
+        }
+
+        [Fact]
+        public void Validate_NestedRepeater_ReportsWarning()
+        {
+            string json = @"{
+                ""TreeName"": ""NestedRepeater"",
+                ""Root"": {
+                    ""Type"": ""Repeater"",
+                    ""RepeatCount"": 2,
+                    ""Children"": [
+                        {
+                            ""Type"": ""Sequence"",
+                            ""Children"": [
+                                {
+                                    ""Type"": ""Repeater"",
+                                    ""RepeatCount"": 2,
+                                    ""Children"": [
+                                        { ""Type"": ""Action"", ""Action"": ""A"" }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }";
+            
+            var blob = TreeCompiler.CompileFromJson(json);
+            var result = TreeValidator.Validate(blob);
+            
+            Assert.True(result.IsValid);
+            Assert.True(result.HasWarnings);
+            Assert.Contains("Nested Repeater", result.Warnings[0]);
+        }
+
+        [Fact]
+        public void Validate_ParallelTooManyChildren_ReportsWarning()
+        {
+            // Create Parallel with 17 children
+             var children = new System.Collections.Generic.List<string>();
+             for(int i=0; i<17; i++) 
+                children.Add(@"{ ""Type"": ""Action"", ""Action"": ""A"" }");
+
+            string childrenJson = string.Join(",", children);
+
+            string json = $@"{{
+                ""TreeName"": ""BigParallel"",
+                ""Root"": {{
+                    ""Type"": ""Parallel"",
+                    ""Policy"": 0,
+                    ""Children"": [ {childrenJson} ]
+                }}
+            }}";
+            
+            var blob = TreeCompiler.CompileFromJson(json);
+            var result = TreeValidator.Validate(blob);
+            
+            Assert.True(result.IsValid);
+            Assert.True(result.HasWarnings);
+            Assert.Contains("Parallel has 17 children", result.Warnings[0]);
+        }
     }
 }

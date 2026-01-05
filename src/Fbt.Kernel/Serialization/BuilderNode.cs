@@ -10,9 +10,11 @@ namespace Fbt.Serialization
     public class BuilderNode
     {
         public NodeType Type { get; set; }
-        public string MethodName { get; set; }
+        public string MethodName { get; set; } = string.Empty;
         public float WaitTime { get; set; }
+        public float CooldownTime { get; set; }
         public int RepeatCount { get; set; }
+        public int Policy { get; set; }
         public List<BuilderNode> Children { get; } = new List<BuilderNode>();
         
         public BuilderNode(JsonNode jsonNode)
@@ -26,7 +28,10 @@ namespace Fbt.Serialization
             // Support both 'Action' and 'Method' properties for flexibility
             if (Type == NodeType.Action || Type == NodeType.Condition)
             {
-                MethodName = !string.IsNullOrEmpty(jsonNode.Action) ? jsonNode.Action : jsonNode.Method;
+                // Prioritize Action, then Method. If both null/empty, stays string.Empty.
+                string? name = !string.IsNullOrEmpty(jsonNode.Action) ? jsonNode.Action : jsonNode.Method;
+                if (!string.IsNullOrEmpty(name))
+                    MethodName = name;
             }
             else if (Type == NodeType.Wait)
             {
@@ -46,12 +51,31 @@ namespace Fbt.Serialization
                      RepeatCount = Convert.ToInt32(val);
                  }
             }
+            else if (Type == NodeType.Cooldown)
+            {
+                CooldownTime = jsonNode.CooldownTime;
+                if (CooldownTime == 0 && jsonNode.Params != null && jsonNode.Params.TryGetValue("duration", out var val))
+                {
+                    CooldownTime = Convert.ToSingle(val);
+                }
+            }
+            else if (Type == NodeType.Parallel)
+            {
+                Policy = jsonNode.Policy;
+                if (Policy == 0 && jsonNode.Params != null && jsonNode.Params.TryGetValue("policy", out var val))
+                {
+                    Policy = Convert.ToInt32(val);
+                }
+            }
             
             // Recursively build children
             if (jsonNode.Children != null)
             {
                 foreach (var child in jsonNode.Children)
-                    Children.Add(new BuilderNode(child));
+                {
+                    if (child != null)
+                        Children.Add(new BuilderNode(child));
+                }
             }
         }
         
@@ -63,7 +87,7 @@ namespace Fbt.Serialization
             return size;
         }
         
-        private static NodeType MapNodeType(string typeName)
+        private static NodeType MapNodeType(string? typeName)
         {
             if (string.IsNullOrEmpty(typeName)) throw new ArgumentException("Node Type cannot be empty");
 

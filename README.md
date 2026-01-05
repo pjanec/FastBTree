@@ -1,5 +1,10 @@
 # FastBTree
 
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Build](https://img.shields.io/badge/build-passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-75%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 **High-performance, cache-friendly behavior tree library for .NET**
 
 FastBTree is a production-ready behavior tree implementation designed for real-time systems, game AI, and robotics. It emphasizes:
@@ -20,6 +25,7 @@ FastBTree is a production-ready behavior tree implementation designed for real-t
 - Binary compilation (fast loading)
 - Hash-based change detection
 - Tree validation
+- Warning detection for known limitations (nested Parallels/Repeaters)
 
 ✅ **Performance**
 - 8-byte nodes (cache-aligned)
@@ -120,12 +126,39 @@ FastBTree uses a **bytecode interpreter** model:
 
 ## Performance
 
-Typical performance on modern hardware:
-- **Compilation**: ~1000 trees/sec
-- **Execution**: ~100,000 ticks/sec per tree
-- **Memory**: ~8 bytes per node + lookup tables
+Benchmarked on: Intel Core i7-7700HQ CPU 2.80GHz (Kaby Lake), .NET 10.0
 
-Zero allocations during tick execution!
+### Interpreter Performance
+
+| Benchmark | Mean | Allocated |
+|-----------|------|-----------|
+| SimpleSequence_Tick (3 nodes) | 30.13 ns | **0 B** |
+| ComplexTree_Tick (21 nodes) | 100.15 ns | **0 B** |
+| SimpleSequence_Resume | 21.88 ns | **0 B** |
+
+**Key Metrics:**
+- ✅ **Zero allocations** in hot path
+- ✅ Extremely fast execution (~100ns for complex trees)
+- ✅ Cache-friendly processing
+
+### Compilation Performance
+
+| Benchmark | Mean | Allocated |
+|-----------|------|-----------|
+| CompileSimpleTree | 7.41 μs | 2.82 KB |
+| CompileComplexTree | 17.13 μs | 7.42 KB |
+| SaveBinary | 273.41 μs | 4.30 KB |
+| LoadBinary | 189.24 μs | 4.76 KB |
+
+**Key Metrics:**
+- ✅ Fast compilation (microseconds)
+- ✅ Efficient binary save/load operations
+
+### Memory Footprint
+
+- NodeDefinition: 8 bytes (cache-aligned)
+- BehaviorTreeState: 64 bytes (single cache line)
+- Typical 20-node tree: ~160 bytes + lookup tables
 
 ## Testing
 

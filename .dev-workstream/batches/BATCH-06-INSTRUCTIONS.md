@@ -340,35 +340,285 @@ Benchmarked on: [Your Hardware]
 
 ---
 
-### Task 6: XML Documentation Audit
+### Task 6: Enhanced Tree Validation
 
-**Objective:** Ensure all public APIs have XML documentation.
+**Objective:** Detect and warn about known limitations during tree loading.
 
-**Files to audit:**
-- `src/Fbt.Kernel/**/*.cs` (all public classes/methods)
+**File:** Update `src/Fbt.Kernel/Serialization/TreeValidator.cs`
 
-**Check for:**
-- `<summary>` on all public types
-- `<param>` on all public method parameters
-- `<returns>` on methods returning values
-- `<remarks>` for important notes
+**Critical Issues to Detect:**
 
-**Example:**
+**A. Nested Parallel Nodes (Register Conflict)**
+
+Parallel nodes use `LocalRegisters[3]`. Nested Parallels would conflict!
+
+**Detection Algorithm:**
 ```csharp
-/// <summary>
-/// Executes one tick of the behavior tree.
-/// </summary>
-/// <param name="bb">Blackboard containing shared state.</param>
-/// <param name="state">Persistent execution state (64 bytes).</param>
-/// <param name="ctx">Context providing external services.</param>
-/// <returns>Current execution status (Success, Failure, Running).</returns>
-/// <remarks>
-/// This method has zero allocations in the hot path.
-/// </remarks>
-public NodeStatus Tick(ref TBlackboard bb, ref BehaviorTreeState state, ref TContext ctx)
+// Track if we're inside a Parallel node
+private static void DetectNestedParallel(
+    BehaviorTreeBlob blob,
+    int nodeIndex,
+    bool insideParallel,
+    ValidationResult result)
+{
+    var node = blob.Nodes[nodeIndex];
+    
+    if (node.Type == NodeType.Parallel)
+    {
+        if (insideParallel)
+        {
+            result.Warnings.Add(
+                $"Node {nodeIndex}: Nested Parallel detected! " +
+                "Both Parallel nodes will conflict on LocalRegisters[3]. " +
+                "This will cause incorrect execution. Consider restructuring the tree.");
+        }
+        insideParallel = true; // Mark we're inside Parallel
+    }
+    
+    // Recursively check children
+    int childIndex = nodeIndex + 1;
+    for (int i = 0; i < node.ChildCount; i++)
+    {
+        DetectNestedParallel(blob, childIndex, insideParallel, result);
+        childIndex += blob.Nodes[childIndex].SubtreeOffset;
+    }
+}
 ```
 
-**Fix any missing documentation.**
+**B. Nested Repeater Nodes (Register Conflict)**
+
+Repeater nodes use `LocalRegisters[0]`. Nested Repeaters would conflict!
+
+```csharp
+private static void DetectNestedRepeater(
+    BehaviorTreeBlob blob,
+    int nodeIndex,
+    bool insideRepeater,
+    ValidationResult result)
+{
+    var node = blob.Nodes[nodeIndex];
+    
+    if (node.Type == NodeType.Repeater)
+    {
+        if (insideRepeater)
+        {
+            result.Warnings.Add(
+                $"Node {nodeIndex}: Nested Repeater detected! " +
+                "Both Repeater nodes will conflict on LocalRegisters[0]. " +
+                "This will cause incorrect iteration counts. Consider restructuring the tree.");
+        }
+        insideRepeater = true;
+    }
+    
+    // Recursively check children
+    int childIndex = nodeIndex + 1;
+    for (int i = 0; i < node.ChildCount; i++)
+    {
+        DetectNestedRepeater(blob, childIndex, insideRepeater, result);
+        childIndex += blob.Nodes[childIndex].SubtreeOffset;
+    }
+}
+```
+
+**C. Parallel Child Count Limit**
+
+```csharp
+if (node.Type == NodeType.Parallel && node.ChildCount > 16)
+{
+    result.Warnings.Add(
+        $"Node {nodeIndex}: Parallel has {node.ChildCount} children. " +
+        "Maximum supported is 16 (due to 32-bit register limitation). " +
+        "Only first 16 children will execute!");
+}
+```
+
+**D. Update ValidationResult Class**
+
+```csharp
+public class ValidationResult
+{
+    public bool IsValid => Errors.Count == 0;
+    public bool HasWarnings => Warnings.Count > 0;
+    
+    public List<string> Errors { get; } = new List<string>();
+    public List<string> Warnings { get; } = new List<string>();
+    
+    public override string ToString()
+    {
+        var sb = new StringBuilder();
+        
+        if (Errors.Count > 0)
+        {
+            sb.AppendLine($"ERRORS ({Errors.Count}):");
+            foreach (var error in Errors)
+                sb.AppendLine($"  - {error}");
+        }
+        
+        if (Warnings.Count > 0)
+        {
+            sb.AppendLine($"WARNINGS ({Warnings.Count}):");
+            foreach (var warning in Warnings)
+                sb.AppendLine($"  - {warning}");
+        }
+        
+        return sb.ToString();
+    }
+}
+```
+
+**E. Update TreeValidator.Validate()**
+
+```csharp
+public static ValidationResult Validate(BehaviorTreeBlob blob)
+{
+    var result = new ValidationResult();
+    
+    if (blob.Nodes == null || blob.Nodes.Length == 0)
+    {
+        result.Errors.Add("Tree has no nodes");
+        return result;
+    }
+    
+    // Existing validations (bounds checks, etc.)
+    for (int i = 0; i < blob.Nodes.Length; i++)
+    {
+        var node = blob.Nodes[i];
+        
+        // Validate subtree offset
+        if (node.SubtreeOffset == 0)
+        {
+            result.Errors.Add($"Node {i}: SubtreeOffset is zero");
+        }
+        else if (i + node.SubtreeOffset > blob.Nodes.Length)
+        {
+            result.Errors.Add($"Node {i}: SubtreeOffset {node.SubtreeOffset} exceeds tree bounds");
+        }
+        
+        // Validate payload index
+        if (node.Type == NodeType.Action || node.Type == NodeType.Condition)
+        {
+            if (node.PayloadIndex < 0 || node.PayloadIndex >= (blob.MethodNames?.Length ?? 0))
+            {
+                result.Errors.Add($"Node {i}: Invalid method PayloadIndex {node.PayloadIndex}");
+            }
+        }
+        else if (node.Type == NodeType.Wait || node.Type == NodeType.Cooldown)
+        {
+            if (node.PayloadIndex < 0 || node.PayloadIndex >= (blob.FloatParams?.Length ?? 0))
+            {
+                result.Errors.Add($"Node {i}: Invalid float PayloadIndex {node.PayloadIndex}");
+            }
+        }
+        else if (node.Type == NodeType.Repeater || node.Type == NodeType.Parallel)
+        {
+            if (node.PayloadIndex < 0 || node.PayloadIndex >= (blob.IntParams?.Length ?? 0))
+            {
+                result.Errors.Add($"Node {i}: Invalid int PayloadIndex {node.PayloadIndex}");
+            }
+        }
+        
+        // NEW: Warn about Parallel child limit
+        if (node.Type == NodeType.Parallel && node.ChildCount > 16)
+        {
+            result.Warnings.Add(
+                $"Node {i}: Parallel has {node.ChildCount} children (max 16 supported). " +
+                "Only first 16 will execute!");
+        }
+    }
+    
+    // NEW: Detect nested Parallel nodes
+    DetectNestedParallel(blob, 0, false, result);
+    
+    // NEW: Detect nested Repeater nodes
+    DetectNestedRepeater(blob, 0, false, result);
+    
+    return result;
+}
+```
+
+**F. Integration with TreeCompiler**
+
+Update `TreeCompiler.CompileFromJson` to automatically validate and log warnings:
+
+```csharp
+public static BehaviorTreeBlob CompileFromJson(string jsonText)
+{
+    // ... existing parsing and compilation ...
+    
+    blob.StructureHash = CalculateStructureHash(blob.Nodes);
+    blob.ParamHash = CalculateParamHash(blob.FloatParams, blob.IntParams);
+    
+    // NEW: Automatic validation with warning output
+    var validation = TreeValidator.Validate(blob);
+    
+    if (!validation.IsValid)
+    {
+        throw new InvalidOperationException(
+            $"Tree '{blob.TreeName}' failed validation:\n{validation}");
+    }
+    
+    // Log warnings (consider adding ILogger support or Console.WriteLine)
+    if (validation.HasWarnings)
+    {
+        // For now, just include in exception message if there are errors
+        // Or we could add a callback for warnings
+        Console.WriteLine($"Tree '{blob.TreeName}' has warnings:\n{validation}");
+    }
+    
+    return blob;
+}
+```
+
+**Tests Required:**
+
+```csharp
+[Fact]
+public void Validate_NestedParallel_ReportsWarning()
+{
+    // Create tree with Parallel -> Sequence -> Parallel
+    string json = @"{
+        ""TreeName"": ""NestedParallel"",
+        ""Root"": {
+            ""Type"": ""Parallel"",
+            ""Policy"": 0,
+            ""Children"": [
+                {
+                    ""Type"": ""Sequence"",
+                    ""Children"": [
+                        {
+                            ""Type"": ""Parallel"",
+                            ""Policy"": 0,
+                            ""Children"": [
+                                { ""Type"": ""Action"", ""Action"": ""A"" }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    }";
+    
+    var blob = TreeCompiler.CompileFromJson(json);
+    var result = TreeValidator.Validate(blob);
+    
+    Assert.True(result.IsValid); // No errors
+    Assert.True(result.HasWarnings); // But has warnings!
+    Assert.Contains("Nested Parallel", result.Warnings[0]);
+}
+
+[Fact]
+public void Validate_NestedRepeater_ReportsWarning()
+{
+    // Similar test for nested Repeater
+}
+
+[Fact]
+public void Validate_ParallelTooManyChildren_ReportsWarning()
+{
+    // Create Parallel with 20 children (> 16 limit)
+    // Verify warning about only first 16 executing
+}
+```
 
 ---
 

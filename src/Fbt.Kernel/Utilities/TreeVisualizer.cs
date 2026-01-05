@@ -14,7 +14,7 @@ namespace Fbt.Utilities
         {
             var sb = new StringBuilder();
             sb.AppendLine($"Tree: {blob.TreeName}");
-            sb.AppendLine($"Nodes: {blob.Nodes.Length}, Methods: {blob.MethodNames?.Length ?? 0}");
+            sb.AppendLine($"Nodes: {blob.Nodes.Length}, Methods: {blob.MethodNames.Length}");
             sb.AppendLine();
             
             VisualizeNode(blob, 0, 0, sb);
@@ -35,7 +35,7 @@ namespace Fbt.Utilities
             // Add method name for actions
             if (node.Type == NodeType.Action || node.Type == NodeType.Condition)
             {
-                if (node.PayloadIndex >= 0 && node.PayloadIndex < (blob.MethodNames?.Length ?? 0))
+                if (node.PayloadIndex >= 0 && node.PayloadIndex < blob.MethodNames.Length)
                 {
                     sb.Append($" \"{blob.MethodNames[node.PayloadIndex]}\"");
                 }
@@ -44,22 +44,22 @@ namespace Fbt.Utilities
             // Add params for Wait/Repeater/Cooldown
             if (node.Type == NodeType.Wait && node.PayloadIndex >= 0)
             {
-                if (node.PayloadIndex < (blob.FloatParams?.Length ?? 0))
+                if (node.PayloadIndex < blob.FloatParams.Length)
                     sb.Append($" ({blob.FloatParams[node.PayloadIndex].ToString(CultureInfo.InvariantCulture)}s)");
             }
             if (node.Type == NodeType.Cooldown && node.PayloadIndex >= 0)
             {
-                 if (node.PayloadIndex < (blob.FloatParams?.Length ?? 0))
+                 if (node.PayloadIndex < blob.FloatParams.Length)
                     sb.Append($" (Cooldown: {blob.FloatParams[node.PayloadIndex].ToString(CultureInfo.InvariantCulture)}s)");
             }
             if (node.Type == NodeType.Repeater && node.PayloadIndex >= 0)
             {
-                 if (node.PayloadIndex < (blob.IntParams?.Length ?? 0))
+                 if (node.PayloadIndex < blob.IntParams.Length)
                     sb.Append($" (x{blob.IntParams[node.PayloadIndex]})");
             }
              if (node.Type == NodeType.Parallel && node.PayloadIndex >= 0)
             {
-                 if (node.PayloadIndex < (blob.IntParams?.Length ?? 0))
+                 if (node.PayloadIndex < blob.IntParams.Length)
                  {
                     int policy = blob.IntParams[node.PayloadIndex];
                     string policyName = policy == 0 ? "RequireAll" : "RequireOne";
