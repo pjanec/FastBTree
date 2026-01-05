@@ -1,12 +1,15 @@
 using Raylib_cs;
 using System.Numerics;
 using System.Collections.Generic;
+using Fbt.Serialization;
 
 namespace Fbt.Demo.Visual
 {
     public class RenderSystem
     {
-        public void RenderAgents(List<Agent> agents, Agent? selectedAgent)
+        private IAgentStatusProvider _statusProvider = new DefaultStatusProvider();
+        
+        public void RenderAgents(List<Agent> agents, Agent? selectedAgent, Dictionary<string, BehaviorTreeBlob> trees)
         {
             foreach (var agent in agents)
             {
@@ -49,12 +52,46 @@ namespace Fbt.Demo.Visual
                         Raylib.ColorAlpha(Color.Yellow, alpha / 255f));
                 }
                 
-                // Draw status icon/text above head
-                if (agent.CurrentNode.HasValue)
+                // NEW: Render status label above agent
+                if (trees.TryGetValue(agent.TreeName, out var blob))
                 {
-                    // Raylib.DrawCircleV(agent.Position + new Vector2(0, -15), 3, Color.YELLOW);
+                    string status = _statusProvider.GetAgentStatus(agent, blob);
+                    RenderAgentLabel(agent.Position, status, agent == selectedAgent);
                 }
             }
+        }
+        
+        private void RenderAgentLabel(Vector2 position, string text, bool isSelected)
+        {
+            // Position above agent
+            Vector2 labelPos = position + new Vector2(0, -28);
+            
+            // Measure text
+            int fontSize = 12;
+            int spacing = 1;
+            int textWidth = Raylib.MeasureText(text, fontSize);
+            
+            // Background box
+            Color bgColor = isSelected 
+                ? new Color(50, 50, 50, 220)   // Darker for selected
+                : new Color(0, 0, 0, 180);      // Semi-transparent black
+            
+            int padding = 4;
+            Raylib.DrawRectangle(
+                (int)(labelPos.X - textWidth / 2 - padding),
+                (int)(labelPos.Y - padding),
+                textWidth + padding * 2,
+                fontSize + padding * 2,
+                bgColor);
+            
+            // Text
+            Color textColor = isSelected ? Color.Yellow : Color.White;
+            Raylib.DrawText(
+                text,
+                (int)(labelPos.X - textWidth / 2),
+                (int)labelPos.Y,
+                fontSize,
+                textColor);
         }
     }
 }

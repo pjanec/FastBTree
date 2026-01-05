@@ -6,6 +6,8 @@ namespace Fbt.Demo.Visual.UI
 {
     public class TreeVisualPanel
     {
+        private NodeDetailPanel _detailPanel = new NodeDetailPanel();
+        
         public void Render(Agent agent, BehaviorTreeBlob blob)
         {
             ImGui.Begin($"Agent Inspector - ID: {agent.Id}");
@@ -45,9 +47,8 @@ namespace Fbt.Demo.Visual.UI
             ImGui.Separator();
             
             ImGui.TextColored(new Vector4(0.5f, 0.8f, 1.0f, 1.0f), $"Behavior Tree: {blob.TreeName}");
-            // Show running node index. Note: RunningNodeIndex is internal to the state but accessible.
-            // If tree is finished (Success/Failure), RunningNodeIndex might be -1 or reset.
             ImGui.Text($"Running Node Index: {agent.State.RunningNodeIndex}");
+            ImGui.TextColored(new Vector4(1f, 1f, 0.5f, 1f), "💡 Click a node for details");
             
             ImGui.Separator();
             
@@ -59,6 +60,9 @@ namespace Fbt.Demo.Visual.UI
             ImGui.EndChild();
             
             ImGui.End();
+            
+            // Render detail panel if node selected
+            _detailPanel.Render(agent, blob);
         }
         
         private void RenderNode(BehaviorTreeBlob blob, int index, int runningIndex, int depth)
@@ -66,30 +70,50 @@ namespace Fbt.Demo.Visual.UI
             if (index >= blob.Nodes.Length) return;
             
             var node = blob.Nodes[index];
-            string indent = new string(' ', depth * 4); // Indent with spaces for now, or use TreeNodes
+            string indent = new string(' ', depth * 4);
             
-            // Highlight running node
-            // Note: If we use ImGui.TreeNode, it's interactive. If we just use Text, it's static.
-            // Let's use Text to keep it simple and aligned.
-            
+            // Determine color
             Vector4 color = (index == runningIndex)
                 ? new Vector4(1f, 1f, 0f, 1f) // Yellow for running
                 : new Vector4(1f, 1f, 1f, 1f); // White otherwise
             
-            // Optional: show extra info (payload)
+            // Build extra info (payload)
             string extra = "";
             if (node.Type == NodeType.Action || node.Type == NodeType.Condition)
             {
                  if (node.PayloadIndex >= 0 && node.PayloadIndex < blob.MethodNames.Length)
-                    extra = $" \"{blob.MethodNames[node.PayloadIndex]}\"";
+                    extra = $" \"{blob.MethodNames![node.PayloadIndex]}\"";
             }
             else if (node.Type == NodeType.Wait || node.Type == NodeType.Cooldown)
             {
                 if (node.PayloadIndex >= 0 && node.PayloadIndex < blob.FloatParams.Length)
-                    extra = $" ({blob.FloatParams[node.PayloadIndex]}s)";
+                    extra = $" ({blob.FloatParams![node.PayloadIndex]}s)";
             }
             
-            ImGui.TextColored(color, $"{indent}[{index}] {node.Type}{extra}");
+            string nodeText = $"{indent}[{index}] {node.Type}{extra}";
+            
+            // Make it selectable for detail view
+            ImGui.PushID(index);
+            bool isSelected = _detailPanel.IsNodeSelected(index);
+            
+            // Push color for running node
+            if (index == runningIndex)
+            {
+                ImGui.PushStyleColor(ImGuiCol.Text, color);
+            }
+            
+            if (ImGui.Selectable(nodeText, isSelected))
+            {
+                _detailPanel.SetSelectedNode(index);
+            }
+            
+            // Pop color if we pushed it
+            if (index == runningIndex)
+            {
+                ImGui.PopStyleColor();
+            }
+            
+            ImGui.PopID();
             
             // Render children
             int childIndex = index + 1;

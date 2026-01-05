@@ -147,7 +147,7 @@ namespace Fbt.Demo.Visual
             Raylib.ClearBackground(Color.DarkGray);
             
             // Render world
-            _renderSystem.RenderAgents(_agents, _selectedAgent);
+            _renderSystem.RenderAgents(_agents, _selectedAgent, _trees);
             
             // ImGui UI
             rlImGui.Begin();
