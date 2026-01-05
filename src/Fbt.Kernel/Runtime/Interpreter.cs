@@ -325,7 +325,7 @@ namespace Fbt.Runtime
                     currentIteration = 0;
                 }
                 
-                while (currentIteration < repeatCount)
+                while (repeatCount < 0 || currentIteration < repeatCount)
                 {
                     // Repeater has exactly one child
                     int childIndex = nodeIndex + 1;
@@ -346,7 +346,7 @@ namespace Fbt.Runtime
                     currentIteration++;
                     
                     // If more iterations remain, continue
-                    if (currentIteration < repeatCount)
+                    if (repeatCount < 0 || currentIteration < repeatCount)
                     {
                         // Reset child for next iteration
                         // Since child returned Success, RunningNodeIndex is already 0.

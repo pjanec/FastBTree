@@ -24,6 +24,8 @@ namespace Fbt.Serialization
         public float CooldownTime { get; set; }
         public int Policy { get; set; }
         public JsonNode[]? Children { get; set; }
-        public Dictionary<string, object>? Params { get; set; }
+        
+        [JsonExtensionData]
+        public Dictionary<string, object> Params { get; set; } = new Dictionary<string, object>();
     }
 }
