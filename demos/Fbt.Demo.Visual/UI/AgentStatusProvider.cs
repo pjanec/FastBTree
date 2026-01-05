@@ -8,30 +8,49 @@ namespace Fbt.Demo.Visual
 {
     public interface IAgentStatusProvider
     {
-        string GetAgentStatus(Agent agent, BehaviorTreeBlob blob);
+        List<(string Text, Raylib_cs.Color Color)> GetAgentStatus(Agent agent, BehaviorTreeBlob blob, float currentTime);
     }
     
     public class DefaultStatusProvider : IAgentStatusProvider
     {
-        public string GetAgentStatus(Agent agent, BehaviorTreeBlob blob)
+        public List<(string Text, Raylib_cs.Color Color)> GetAgentStatus(Agent agent, BehaviorTreeBlob blob, float currentTime)
         {
-            // If tree not running, show role
+            var lines = new List<(string, Raylib_cs.Color)>();
+
+            // Line 1: Role
+            lines.Add((agent.Role.ToString().ToUpper(), agent.Color));
+
+            // If tree not running or invalid
             if (blob.Nodes == null || 
                 agent.State.RunningNodeIndex < 0 || 
                 agent.State.RunningNodeIndex >= blob.Nodes.Length)
             {
-                return agent.Role.ToString();
+                lines.Add(("IDLE", Raylib_cs.Color.White));
+                return lines;
             }
             
             var runningNode = blob.Nodes[agent.State.RunningNodeIndex];
-            return BuildStatusString(agent, blob, runningNode, agent.State.RunningNodeIndex);
+            
+            // Line 2: Current action/state
+            string actionText = GetActionText(agent, blob, runningNode, currentTime);
+            Raylib_cs.Color actionColor = GetActionColor(actionText, agent);
+            lines.Add((actionText, actionColor));
+            
+            // Line 3: Contextual detail
+            string detail = GetContextualDetail(agent, runningNode, blob);
+            if (!string.IsNullOrEmpty(detail))
+            {
+                lines.Add((detail, new Raylib_cs.Color(180, 180, 180, 255))); // Gray
+            }
+            
+            return lines;
         }
         
-        private unsafe string BuildStatusString(
+        private unsafe string GetActionText(
             Agent agent, 
             BehaviorTreeBlob blob, 
-            NodeDefinition node, 
-            int nodeIndex)
+            NodeDefinition node,
+            float currentTime)
         {
             // For Action/Condition nodes - show the method name
             if (node.Type == NodeType.Action || node.Type == NodeType.Condition)
@@ -41,25 +60,40 @@ namespace Fbt.Demo.Visual
                 // Custom formatting based on action name
                 return actionName switch
                 {
-                    "FindPatrolPoint" => "Picking patrol point",
-                    "MoveToTarget" => "Moving...",
-                    "FindResource" => "Looking for resources",
+                    "FindPatrolPoint" => "Picking Point",
+                    "MoveToTarget" => "Moving",
+                    "FindResource" => "Searching",
                     "Gather" => "Gathering",
-                    "ReturnToBase" => "Returning to base",
-                    "ScanForEnemy" => "Scanning for enemies",
-                    "HasEnemy" => "Checking for enemies",
+                    "ReturnToBase" => "Returning",
+                    "ScanForEnemy" => "Scanning",
+                    "HasEnemy" => "Checking Enemy",
                     "FindRandomPoint" => "Wandering",
-                    "ChaseEnemy" => $"Chasing Agent #{agent.Blackboard.TargetAgentId}",
-                    "Attack" => "⚔️ ATTACKING!",
+                    "ChaseEnemy" => "CHASING",
+                    "Attack" => "ATTACKING",
                     _ => actionName
                 };
             }
             
-            // For Wait nodes - show status
+            // For Wait nodes - show countdown
             if (node.Type == NodeType.Wait)
             {
                 float duration = GetWaitDuration(blob, node);
-                return $"Waiting ({duration:F1}s)";
+                float startTime = (float)agent.State.AsyncData; // AsyncData holds start time for Wait nodes
+                // Note: The Interpreter stores 'context.Time + duration' into AsyncData usually? 
+                // Let's check Interpreter behavior for Wait.
+                // Wait node in standard behavior tree usually stores Deadline.
+                // But FastBTree interpreter implementation:
+                // If it's a built-in Wait node type (NodeDefinition.Type == NodeType.Wait), 
+                // we need to verify what is stored in AsyncData.
+                // Actually, let's assume AsyncData = StartTime for now, or Deadline.
+                // If we check Interpreter logic (not visible here), usually it's Deadline = Time + Duration.
+                // So Remaining = AsyncData - Time.
+                // Let's print remaining.
+                
+                // Assuming AsyncData is 'ExpirationTime'
+                float remaining = (float)agent.State.AsyncData - currentTime;
+                if (remaining < 0) remaining = 0;
+                return $"Wait {remaining:F1}s";
             }
             
             // For Repeater - show iteration
@@ -75,13 +109,50 @@ namespace Fbt.Demo.Visual
             // For Cooldown
             if (node.Type == NodeType.Cooldown)
             {
-                return "On cooldown";
+                return "Cooldown";
             }
             
             // Default: show node type
             return node.Type.ToString();
         }
+
+        private string GetContextualDetail(Agent agent, NodeDefinition node, BehaviorTreeBlob blob)
+        {
+             switch (agent.Role)
+             {
+                 case AgentRole.Combat:
+                    if (agent.Blackboard.HasTarget)
+                    {
+                        float dist = Vector2.Distance(agent.Position, agent.TargetPosition);
+                        return $"Dist: {dist:F0}px";
+                    }
+                    return "";
+                     
+                 case AgentRole.Gather:
+                     return $"Res: {agent.Blackboard.ResourceCount}";
+                     
+                 case AgentRole.Patrol:
+                     return $"Pt {agent.Blackboard.PatrolPointIndex + 1}/4";
+                     
+                 default:
+                     return "";
+             }
+        }
         
+        private Raylib_cs.Color GetActionColor(string action, Agent agent)
+        {
+            if (action.Contains("ATTACK") || agent.AttackFlashTimer > 0)
+                return Raylib_cs.Color.Red;
+            
+            if (action.Contains("CHASING"))
+                return Raylib_cs.Color.Orange;
+            
+            if (action.Contains("Moving") || action.Contains("Gathering") || action.Contains("Wandering"))
+                return Raylib_cs.Color.Yellow;
+                
+            return Raylib_cs.Color.White;
+        }
+
         private string GetActionName(BehaviorTreeBlob blob, NodeDefinition node)
         {
             if (node.PayloadIndex >= 0 && node.PayloadIndex < (blob.MethodNames?.Length ?? 0))

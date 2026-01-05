@@ -8,7 +8,7 @@ namespace Fbt.Demo.Visual.UI
     {
         private NodeDetailPanel _detailPanel = new NodeDetailPanel();
         
-        public void Render(Agent agent, BehaviorTreeBlob blob)
+        public void Render(Agent agent, BehaviorTreeBlob blob, float currentTime)
         {
             ImGui.Begin($"Agent Inspector - ID: {agent.Id}");
             
@@ -62,7 +62,7 @@ namespace Fbt.Demo.Visual.UI
             ImGui.End();
             
             // Render detail panel if node selected
-            _detailPanel.Render(agent, blob);
+            _detailPanel.Render(agent, blob, currentTime);
         }
         
         private void RenderNode(BehaviorTreeBlob blob, int index, int runningIndex, int depth)

@@ -9,7 +9,7 @@ namespace Fbt.Demo.Visual
     {
         private IAgentStatusProvider _statusProvider = new DefaultStatusProvider();
         
-        public void RenderAgents(List<Agent> agents, Agent? selectedAgent, Dictionary<string, BehaviorTreeBlob> trees)
+        public void RenderAgents(List<Agent> agents, Agent? selectedAgent, Dictionary<string, BehaviorTreeBlob> trees, float currentTime)
         {
             foreach (var agent in agents)
             {
@@ -55,43 +55,51 @@ namespace Fbt.Demo.Visual
                 // NEW: Render status label above agent
                 if (trees.TryGetValue(agent.TreeName, out var blob))
                 {
-                    string status = _statusProvider.GetAgentStatus(agent, blob);
-                    RenderAgentLabel(agent.Position, status, agent == selectedAgent);
+                    var statusLines = _statusProvider.GetAgentStatus(agent, blob, currentTime);
+                    RenderAgentLabel(agent.Position, statusLines, agent == selectedAgent);
                 }
             }
         }
         
-        private void RenderAgentLabel(Vector2 position, string text, bool isSelected)
+        private void RenderAgentLabel(Vector2 position, List<(string Text, Color Color)> lines, bool isSelected)
         {
-            // Position above agent
-            Vector2 labelPos = position + new Vector2(0, -28);
+            if (lines.Count == 0) return;
+
+            int fontSize = 10;
+            int lineHeight = 12;
             
-            // Measure text
-            int fontSize = 12;
-            int spacing = 1;
-            int textWidth = Raylib.MeasureText(text, fontSize);
+            // Calculate background size
+            int maxWidth = 0;
+            foreach (var line in lines)
+            {
+                 int w = Raylib.MeasureText(line.Text, fontSize);
+                 if (w > maxWidth) maxWidth = w;
+            }
             
-            // Background box
-            Color bgColor = isSelected 
-                ? new Color(50, 50, 50, 220)   // Darker for selected
-                : new Color(0, 0, 0, 180);      // Semi-transparent black
+            int bgHeight = lines.Count * lineHeight + 8;
+            Vector2 labelPos = position + new Vector2(0, -35); // Move higher
             
-            int padding = 4;
+            // Draw background
+            Color bgColor = isSelected ? new Color(50, 50, 50, 220) : new Color(0, 0, 0, 180);
             Raylib.DrawRectangle(
-                (int)(labelPos.X - textWidth / 2 - padding),
-                (int)(labelPos.Y - padding),
-                textWidth + padding * 2,
-                fontSize + padding * 2,
+                (int)(labelPos.X - maxWidth / 2 - 4),
+                (int)(labelPos.Y - 4),
+                maxWidth + 8,
+                bgHeight,
                 bgColor);
             
-            // Text
-            Color textColor = isSelected ? Color.Yellow : Color.White;
-            Raylib.DrawText(
-                text,
-                (int)(labelPos.X - textWidth / 2),
-                (int)labelPos.Y,
-                fontSize,
-                textColor);
+            // Draw each line
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                int textWidth = Raylib.MeasureText(line.Text, fontSize);
+                Raylib.DrawText(
+                    line.Text,
+                    (int)(labelPos.X - textWidth / 2),
+                    (int)(labelPos.Y + i * lineHeight),
+                    fontSize,
+                    line.Color);
+            }
         }
     }
 }

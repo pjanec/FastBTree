@@ -11,7 +11,7 @@ namespace Fbt.Demo.Visual.UI
     {
         private int? _selectedNodeIndex = null;
         
-        public void Render(Agent agent, BehaviorTreeBlob blob)
+        public void Render(Agent agent, BehaviorTreeBlob blob, float currentTime)
         {
             if (_selectedNodeIndex == null) return;
             
@@ -20,7 +20,7 @@ namespace Fbt.Demo.Visual.UI
             int nodeIndex = _selectedNodeIndex.Value;
             if (blob.Nodes != null && nodeIndex >= 0 && nodeIndex < blob.Nodes.Length)
             {
-                RenderNodeDetails(agent, blob, nodeIndex);
+                RenderNodeDetails(agent, blob, nodeIndex, currentTime);
             }
             else
             {
@@ -35,7 +35,7 @@ namespace Fbt.Demo.Visual.UI
             ImGui.End();
         }
         
-        private unsafe void RenderNodeDetails(Agent agent, BehaviorTreeBlob blob, int nodeIndex)
+        private unsafe void RenderNodeDetails(Agent agent, BehaviorTreeBlob blob, int nodeIndex, float currentTime)
         {
             var node = blob.Nodes[nodeIndex];
             
@@ -62,7 +62,7 @@ namespace Fbt.Demo.Visual.UI
                     
                 case NodeType.Wait:
                 case NodeType.Cooldown:
-                    RenderWaitDetails(blob, node, agent.State);
+                    RenderWaitDetails(blob, node, agent.State, currentTime);
                     break;
                     
                 case NodeType.Repeater:
@@ -93,7 +93,7 @@ namespace Fbt.Demo.Visual.UI
                 ImGui.Unindent();
             }
         }
-        
+
         private void RenderActionDetails(BehaviorTreeBlob blob, NodeDefinition node, Agent agent)
         {
             ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), "Action Details");
@@ -147,8 +147,8 @@ namespace Fbt.Demo.Visual.UI
             
             ImGui.Unindent();
         }
-        
-        private void RenderWaitDetails(BehaviorTreeBlob blob, NodeDefinition node, BehaviorTreeState state)
+
+        private void RenderWaitDetails(BehaviorTreeBlob blob, NodeDefinition node, BehaviorTreeState state, float currentTime)
         {
             ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), "Wait Details");
             
@@ -158,8 +158,24 @@ namespace Fbt.Demo.Visual.UI
                 duration = blob.FloatParams![node.PayloadIndex];
             }
             
+            // AsyncData holds Expiration Time (Time + Duration) usually, or Start Time.
+            // Let's assume Expiration Time based on likely implementation.
+            // If AsyncData > Big Number, likely absolute time.
+            float expirationTime = (float)state.AsyncData;
+            float remaining = expirationTime - currentTime;
+            if (remaining < 0) remaining = 0;
+            if (remaining > duration) remaining = duration; // Clamping if just started or AsyncData not set? 
+            
+            // Actually if not running, this data might be stale.
+            
+            float elapsed = duration - remaining;
+            
             ImGui.Text($"Duration: {duration:F2}s");
-            ImGui.Text("(Exact elapsed time requires context)");
+            ImGui.Text($"Elapsed: {elapsed:F2}s");
+            ImGui.Text($"Remaining: {remaining:F2}s");
+            
+            float progress = duration > 0 ? MathF.Min(1f, elapsed / duration) : 0;
+            ImGui.ProgressBar(progress, new Vector2(-1, 0), $"{progress * 100:F0}%");
         }
         
         private unsafe void RenderRepeaterDetails(BehaviorTreeBlob blob, NodeDefinition node, BehaviorTreeState state)

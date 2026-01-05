@@ -147,7 +147,7 @@ namespace Fbt.Demo.Visual
             Raylib.ClearBackground(Color.DarkGray);
             
             // Render world
-            _renderSystem.RenderAgents(_agents, _selectedAgent, _trees);
+            _renderSystem.RenderAgents(_agents, _selectedAgent, _trees, _time);
             
             // ImGui UI
             rlImGui.Begin();
@@ -213,7 +213,7 @@ namespace Fbt.Demo.Visual
             {
                if (_trees.TryGetValue(_selectedAgent.TreeName, out var blob))
                {
-                    _treeVisualPanel.Render(_selectedAgent, blob);
+                    _treeVisualPanel.Render(_selectedAgent, blob, _time);
                }
             }
         }
