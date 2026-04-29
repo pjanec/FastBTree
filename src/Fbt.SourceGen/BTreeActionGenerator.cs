@@ -1,0 +1,167 @@
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using System.Text;
+
+namespace Fbt.SourceGen
+{
+    [Generator]
+    public class BTreeActionGenerator : IIncrementalGenerator
+    {
+        private static readonly DiagnosticDescriptor ReusableDelegateSkipped = new DiagnosticDescriptor(
+            id: "BTree001",
+            title: "Reusable BTree delegate skipped",
+            messageFormat: "BTreeAction '{0}' is a reusable delegate (3 parameters). Register it via BTreeBuilder expression binding.",
+            category: "BTreeSourceGen",
+            defaultSeverity: DiagnosticSeverity.Warning,
+            isEnabledByDefault: true);
+
+        public void Initialize(IncrementalGeneratorInitializationContext context)
+        {
+            var candidateMethods = context.SyntaxProvider
+                .CreateSyntaxProvider(
+                    predicate: static (node, _) => node is MethodDeclarationSyntax m && m.AttributeLists.Count > 0,
+                    transform: static (ctx, _) => GetMethodInfo(ctx))
+                .Where(static m => m != null);
+
+            var compilationAndMethods = context.CompilationProvider.Combine(candidateMethods.Collect());
+
+            context.RegisterSourceOutput(
+                compilationAndMethods,
+                static (spc, source) => Execute(spc, source.Left, source.Right));
+        }
+
+        private static BTreeMethodInfo? GetMethodInfo(GeneratorSyntaxContext context)
+        {
+            var method = (MethodDeclarationSyntax)context.Node;
+            var symbol = context.SemanticModel.GetDeclaredSymbol(method) as IMethodSymbol;
+
+            if (symbol == null) return null;
+
+            bool hasActionAttr = symbol.GetAttributes()
+                .Any(a => a.AttributeClass?.Name == "BTreeActionAttribute");
+            bool hasConditionAttr = symbol.GetAttributes()
+                .Any(a => a.AttributeClass?.Name == "BTreeConditionAttribute");
+
+            if (!hasActionAttr && !hasConditionAttr) return null;
+
+            int paramCount = symbol.Parameters.Length;
+
+            if (paramCount == 3)
+            {
+                // Reusable delegate (3-param) -- skip registration, emit diagnostic
+                return new BTreeMethodInfo
+                {
+                    MethodName = symbol.Name,
+                    FullQualifiedMethodName = symbol.ContainingType.ToDisplayString() + "." + symbol.Name,
+                    TBlackboardType = null,
+                    TContextType = null,
+                    IsReusable = true
+                };
+            }
+
+            if (paramCount != 4) return null;
+
+            // 4-param NodeLogicDelegate: extract TBlackboard (param 0) and TContext (param 2)
+            string tbType = symbol.Parameters[0].Type.ToDisplayString();
+            string tcType = symbol.Parameters[2].Type.ToDisplayString();
+
+            return new BTreeMethodInfo
+            {
+                MethodName = symbol.Name,
+                FullQualifiedMethodName = symbol.ContainingType.ToDisplayString() + "." + symbol.Name,
+                TBlackboardType = tbType,
+                TContextType = tcType,
+                IsReusable = false
+            };
+        }
+
+        private static void Execute(
+            SourceProductionContext context,
+            Compilation compilation,
+            ImmutableArray<BTreeMethodInfo?> methods)
+        {
+            // Report diagnostics for reusable delegates (3-param) and skip them
+            foreach (var m in methods)
+            {
+                if (m != null && m.IsReusable)
+                {
+                    context.ReportDiagnostic(
+                        Diagnostic.Create(ReusableDelegateSkipped, Location.None, m.MethodName));
+                }
+            }
+
+            // Collect only 4-param (NodeLogicDelegate) methods
+            var registrable = new List<BTreeMethodInfo>();
+            foreach (var m in methods)
+            {
+                if (m != null && !m.IsReusable)
+                    registrable.Add(m);
+            }
+
+            if (registrable.Count == 0) return;
+
+            string assemblyName = compilation.AssemblyName ?? "Generated";
+            string namespaceName = assemblyName + ".Generated";
+
+            // Group by (TBlackboard, TContext) to emit one RegisterAll overload per type combo
+            var groups = registrable
+                .GroupBy(m => m.TBlackboardType + "|" + m.TContextType)
+                .ToList();
+
+            var source = GenerateRegistrar(groups, namespaceName);
+            context.AddSource("FbtActionRegistrar.g.cs", source);
+        }
+
+        private static string GenerateRegistrar(
+            List<IGrouping<string, BTreeMethodInfo>> groups,
+            string namespaceName)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("// <auto-generated/>");
+            sb.AppendLine();
+            sb.AppendLine("namespace " + namespaceName);
+            sb.AppendLine("{");
+            sb.AppendLine("    [global::Fbt.FbtRegistrar]");
+            sb.AppendLine("    public static class FbtActionRegistrar");
+            sb.AppendLine("    {");
+            sb.AppendLine("        // NOTE: Only NodeLogicDelegate (4-param) methods are registered here.");
+            sb.AppendLine("        // Reusable delegates (3-param) must be registered via BTreeBuilder");
+            sb.AppendLine("        // expression binding or a manually written RegisterAll override.");
+
+            foreach (var group in groups)
+            {
+                var first = group.First();
+                string tbType = first.TBlackboardType!;
+                string tcType = first.TContextType!;
+
+                sb.AppendLine();
+                sb.AppendLine("        public static void RegisterAll(");
+                sb.AppendLine("            global::Fbt.Runtime.ActionRegistry<global::" + tbType + ", global::" + tcType + "> registry)");
+                sb.AppendLine("        {");
+
+                foreach (var m in group)
+                {
+                    sb.AppendLine("            registry.Register(\"" + m.MethodName + "\", global::" + m.FullQualifiedMethodName + ");");
+                }
+
+                sb.AppendLine("        }");
+            }
+
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+    }
+
+    internal class BTreeMethodInfo
+    {
+        public string MethodName { get; set; } = "";
+        public string FullQualifiedMethodName { get; set; } = "";
+        public string? TBlackboardType { get; set; }
+        public string? TContextType { get; set; }
+        public bool IsReusable { get; set; }
+    }
+}
