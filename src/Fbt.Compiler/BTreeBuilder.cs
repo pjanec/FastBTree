@@ -39,6 +39,10 @@ namespace Fbt.Compiler
             }
         }
 
+        // Maximum allowed byte size for a blackboard struct when using expression-binding overloads.
+        // Reflects the inline memory budget of the engine's BrainBlackboard.
+        private const int MaxBlackboardByteSize = 128;
+
         // ---- Fields ----
 
         private readonly List<BuilderEntry> _entries = new List<BuilderEntry>();
@@ -189,6 +193,12 @@ namespace Fbt.Compiler
             [CallerLineNumber] int lineNumber = 0)
             where TValue : unmanaged
         {
+            if (Marshal.SizeOf<TBlackboard>() > MaxBlackboardByteSize)
+                throw new BehaviorTreeBuildException(
+                    $"Blackboard type '{typeof(TBlackboard).Name}' exceeds the maximum allowed size of " +
+                    $"{MaxBlackboardByteSize} bytes ({Marshal.SizeOf<TBlackboard>()} bytes). " +
+                    "Use a smaller blackboard struct or split the blackboard.");
+
             var (memberName, offset) = ExtractFieldInfo(fieldSelector, nameof(fieldSelector));
             string key = $"{logic.Method.DeclaringType!.FullName}.{logic.Method.Name}@{offset}";
 
@@ -230,6 +240,12 @@ namespace Fbt.Compiler
             [CallerLineNumber] int lineNumber = 0)
             where TValue : unmanaged
         {
+            if (Marshal.SizeOf<TBlackboard>() > MaxBlackboardByteSize)
+                throw new BehaviorTreeBuildException(
+                    $"Blackboard type '{typeof(TBlackboard).Name}' exceeds the maximum allowed size of " +
+                    $"{MaxBlackboardByteSize} bytes ({Marshal.SizeOf<TBlackboard>()} bytes). " +
+                    "Use a smaller blackboard struct or split the blackboard.");
+
             var (memberName, offset) = ExtractFieldInfo(fieldSelector, nameof(fieldSelector));
             string key = $"{logic.Method.DeclaringType!.FullName}.{logic.Method.Name}@{offset}";
 
