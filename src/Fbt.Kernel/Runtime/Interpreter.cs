@@ -14,6 +14,9 @@ namespace Fbt.Runtime
         // Used for diagnostics/debugging -- not currently used in tick but available for hot reload introspection.
         private readonly int _blobStructureHash;
 
+        /// <summary>Exposes the compiled blob for diagnostic/visualizer tools.</summary>
+        public BehaviorTreeBlob Blob => _blob;
+
         public Interpreter(BehaviorTreeBlob blob, ActionRegistry<TBlackboard, TContext> registry)
         {
             _blob = blob ?? throw new ArgumentNullException(nameof(blob));
