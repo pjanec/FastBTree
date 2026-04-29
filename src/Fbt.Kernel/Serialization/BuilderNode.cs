@@ -16,7 +16,15 @@ namespace Fbt.Serialization
         public int RepeatCount { get; set; }
         public int Policy { get; set; }
         public List<BuilderNode> Children { get; } = new List<BuilderNode>();
-        
+
+        /// <summary>
+        /// Programmatic constructor for use by BTreeBuilder.
+        /// Set Type and other properties after construction.
+        /// </summary>
+        public BuilderNode()
+        {
+        }
+
         public BuilderNode(JsonNode jsonNode)
         {
             if (jsonNode == null) throw new ArgumentNullException(nameof(jsonNode));

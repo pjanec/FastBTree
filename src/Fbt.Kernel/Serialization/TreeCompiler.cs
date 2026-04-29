@@ -44,34 +44,63 @@ namespace Fbt.Serialization
             // 2. Build intermediate structure
             var builderRoot = new BuilderNode(treeData.Root);
             
-            // 3. Flatten to blob
+            // 3. Flatten to blob (also hashes and validates)
             var blob = FlattenToBlob(builderRoot, treeData.TreeName);
             blob.Version = treeData.Version;
-            
-            // 4. Calculate hashes
-            blob.StructureHash = CalculateStructureHash(blob.Nodes);
-            blob.ParamHash = CalculateParamHash(blob.FloatParams, blob.IntParams);
-            
-            // 5. Automatic Validation
+
+            // 4. Print any non-fatal warnings (FlattenToBlob already threw for fatal ones)
             var validation = TreeValidator.Validate(blob);
-            
-            if (!validation.IsValid)
-            {
-                throw new InvalidOperationException(
-                    $"Tree '{blob.TreeName}' failed validation:\n{validation}");
-            }
-            
             if (validation.HasWarnings)
             {
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"Tree '{blob.TreeName}' has warnings:\n{validation}");
                 Console.ResetColor();
             }
+            
+            return blob;
+        }
+
+        /// <summary>
+        /// Flattens a pre-built BuilderNode tree into a BehaviorTreeBlob.
+        /// Calculates StructureHash and ParamHash, and validates the result.
+        /// Throws <see cref="BehaviorTreeBuildException"/> if validation fails or if
+        /// illegal nesting (nested Parallel or nested Repeater) is detected.
+        /// </summary>
+        public static BehaviorTreeBlob FlattenToBlob(BuilderNode root, string treeName)
+        {
+            if (root == null) throw new ArgumentNullException(nameof(root));
+            if (string.IsNullOrEmpty(treeName)) throw new ArgumentException("treeName cannot be empty", nameof(treeName));
+
+            // 1. Flatten the node tree
+            var blob = FlattenToBlobCore(root, treeName);
+
+            // 2. Calculate hashes
+            blob.StructureHash = CalculateStructureHash(blob.Nodes);
+            blob.ParamHash = CalculateParamHash(blob.FloatParams, blob.IntParams);
+
+            // 3. Validate
+            var validation = TreeValidator.Validate(blob);
+
+            if (!validation.IsValid)
+            {
+                throw new BehaviorTreeBuildException(
+                    $"Tree '{treeName}' failed validation:\n{validation}");
+            }
+
+            // 4. Treat nested Parallel/Repeater warnings as hard errors
+            foreach (var warning in validation.Warnings)
+            {
+                if (warning.Contains("Nested Parallel") || warning.Contains("Nested Repeater"))
+                {
+                    throw new BehaviorTreeBuildException(
+                        $"Tree '{treeName}' contains illegal nested node: {warning}");
+                }
+            }
 
             return blob;
         }
         
-        private static BehaviorTreeBlob FlattenToBlob(BuilderNode root, string treeName)
+        private static BehaviorTreeBlob FlattenToBlobCore(BuilderNode root, string treeName)
         {
             var nodes = new List<NodeDefinition>();
             var methodNames = new List<string>();

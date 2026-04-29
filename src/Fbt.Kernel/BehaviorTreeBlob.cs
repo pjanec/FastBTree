@@ -71,5 +71,12 @@ namespace Fbt
         /// </summary>
         [NonSerialized]
         public object? CompiledDelegate; // Typed as object to avoid generic in blob
+
+        /// <summary>
+        /// Per-node debug metadata (managed, not serialized). Null for blobs compiled from JSON.
+        /// When non-null, length equals Nodes.Length.
+        /// </summary>
+        [NonSerialized]
+        public NodeDebugMetadata[]? DebugMetadata;
     }
 }

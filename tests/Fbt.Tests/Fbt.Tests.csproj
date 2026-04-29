@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Fbt.Kernel\Fbt.Kernel.csproj" />
+    <ProjectReference Include="..\..\src\Fbt.Compiler\Fbt.Compiler.csproj" />
   </ItemGroup>
 
 </Project>
