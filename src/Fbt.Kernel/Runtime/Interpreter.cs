@@ -11,6 +11,8 @@ namespace Fbt.Runtime
     {
         private readonly BehaviorTreeBlob _blob;
         private readonly NodeLogicDelegate<TBlackboard, TContext>[] _actionDelegates;
+        // Used for diagnostics/debugging -- not currently used in tick but available for hot reload introspection.
+        private readonly int _blobStructureHash;
 
         public Interpreter(BehaviorTreeBlob blob, ActionRegistry<TBlackboard, TContext> registry)
         {
@@ -18,6 +20,7 @@ namespace Fbt.Runtime
             if (registry == null) throw new ArgumentNullException(nameof(registry));
             
             _actionDelegates = BindActions(blob, registry);
+            _blobStructureHash = blob.StructureHash;
         }
 
         public NodeStatus Tick(
@@ -25,9 +28,16 @@ namespace Fbt.Runtime
             ref BehaviorTreeState state,
             ref TContext context)
         {
-            // === HOT RELOAD CHECK (Stub for now) ===
-            // Will implement in BATCH-04
-            
+            // === HOT RELOAD CHECK ===
+            // Safety net: if the running node index is out of bounds for the current blob,
+            // reset state to prevent out-of-bounds access after a structural hot reload.
+            if (state.RunningNodeIndex > 0 && (int)state.RunningNodeIndex >= _blob.Nodes.Length)
+            {
+                state.RunningNodeIndex = 0;
+                state.StackPointer = 0;
+                unchecked { state.TreeVersion++; }
+            }
+
             // === EXECUTE TREE ===
             if (_blob.Nodes.Length == 0) return NodeStatus.Success; // Empty tree safety
 
