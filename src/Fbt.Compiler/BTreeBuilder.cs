@@ -2,8 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Fbt;
+using Fbt.Compiler.Graph;
 using Fbt.Runtime;
 using Fbt.Serialization;
 
@@ -25,6 +28,9 @@ namespace Fbt.Compiler
             public readonly BuilderNode Node;
             public readonly NodeDebugMetadata Meta;
             public readonly List<BuilderEntry> ChildEntries = new List<BuilderEntry>();
+            // For expression-bound leaves (FBT-003); null for regular delegate leaves.
+            public string? TargetFieldName;
+            public string? TargetDtoType;
 
             public BuilderEntry(BuilderNode node, NodeDebugMetadata meta)
             {
@@ -165,6 +171,88 @@ namespace Fbt.Compiler
             return AddLeaf(NodeType.Condition, condition, visualId, sourceFile, lineNumber);
         }
 
+        /// <summary>
+        /// Adds a Condition leaf node that projects the blackboard to the field selected by
+        /// <paramref name="fieldSelector"/> and evaluates <paramref name="logic"/> against it.
+        /// The byte offset is computed once at tree-build time via Marshal.OffsetOf.
+        /// </summary>
+        /// <typeparam name="TValue">Field type. Must be unmanaged.</typeparam>
+        /// <remarks>
+        /// TBlackboard should be decorated with [StructLayout(LayoutKind.Sequential)] for
+        /// Marshal.OffsetOf to produce reliable offsets.
+        /// </remarks>
+        public BTreeBuilder<TBlackboard, TContext> Condition<TValue>(
+            Expression<Func<TBlackboard, TValue>> fieldSelector,
+            ReusableConditionDelegate<TValue, TContext> logic,
+            Guid visualId = default,
+            [CallerFilePath] string sourceFile = "",
+            [CallerLineNumber] int lineNumber = 0)
+            where TValue : unmanaged
+        {
+            var (memberName, offset) = ExtractFieldInfo(fieldSelector, nameof(fieldSelector));
+            string key = $"{logic.Method.DeclaringType!.FullName}.{logic.Method.Name}@{offset}";
+
+            NodeLogicDelegate<TBlackboard, TContext> curried =
+                (ref TBlackboard bb, ref BehaviorTreeState st, ref TContext ctx, int _) =>
+                {
+                    ref TValue projected = ref Unsafe.As<TBlackboard, TValue>(
+                        ref Unsafe.AddByteOffset(ref bb, offset));
+                    return logic(ref projected, ref st, ref ctx);
+                };
+            _registry.Register(key, curried);
+
+            var node = new BuilderNode { Type = NodeType.Condition, MethodName = key };
+            var meta = BuildMeta(logic.Method.Name, sourceFile, lineNumber, visualId);
+            var entry = new BuilderEntry(node, meta)
+            {
+                TargetFieldName = memberName,
+                TargetDtoType = typeof(TBlackboard).FullName ?? string.Empty
+            };
+            _entries.Add(entry);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds an Action leaf node that projects the blackboard to the field selected by
+        /// <paramref name="fieldSelector"/> and executes <paramref name="logic"/> against it.
+        /// The byte offset is computed once at tree-build time via Marshal.OffsetOf.
+        /// </summary>
+        /// <typeparam name="TValue">Field type. Must be unmanaged.</typeparam>
+        /// <remarks>
+        /// TBlackboard should be decorated with [StructLayout(LayoutKind.Sequential)] for
+        /// Marshal.OffsetOf to produce reliable offsets.
+        /// </remarks>
+        public BTreeBuilder<TBlackboard, TContext> Action<TValue>(
+            Expression<Func<TBlackboard, TValue>> fieldSelector,
+            ReusableActionDelegate<TValue, TContext> logic,
+            Guid visualId = default,
+            [CallerFilePath] string sourceFile = "",
+            [CallerLineNumber] int lineNumber = 0)
+            where TValue : unmanaged
+        {
+            var (memberName, offset) = ExtractFieldInfo(fieldSelector, nameof(fieldSelector));
+            string key = $"{logic.Method.DeclaringType!.FullName}.{logic.Method.Name}@{offset}";
+
+            NodeLogicDelegate<TBlackboard, TContext> curried =
+                (ref TBlackboard bb, ref BehaviorTreeState st, ref TContext ctx, int _) =>
+                {
+                    ref TValue projected = ref Unsafe.As<TBlackboard, TValue>(
+                        ref Unsafe.AddByteOffset(ref bb, offset));
+                    return logic(ref projected, ref st, ref ctx);
+                };
+            _registry.Register(key, curried);
+
+            var node = new BuilderNode { Type = NodeType.Action, MethodName = key };
+            var meta = BuildMeta(logic.Method.Name, sourceFile, lineNumber, visualId);
+            var entry = new BuilderEntry(node, meta)
+            {
+                TargetFieldName = memberName,
+                TargetDtoType = typeof(TBlackboard).FullName ?? string.Empty
+            };
+            _entries.Add(entry);
+            return this;
+        }
+
         // ---- Terminal calls ----
 
         /// <summary>
@@ -193,6 +281,23 @@ namespace Fbt.Compiler
 
         /// <summary>Returns the accumulated ActionRegistry containing all registered delegates.</summary>
         public ActionRegistry<TBlackboard, TContext> GetRegistry() => _registry;
+
+        /// <summary>
+        /// Converts the current builder state to a <see cref="BehaviorTreeGraph"/>.
+        /// May be called before or after <see cref="Compile"/>.
+        /// </summary>
+        public BehaviorTreeGraph ToGraph(string treeName)
+        {
+            if (_entries.Count == 0)
+                throw new InvalidOperationException("The builder has no root node.");
+            if (_entries.Count > 1)
+                throw new InvalidOperationException(
+                    "The builder has multiple root nodes. A behavior tree must have exactly one root.");
+
+            var graph = new BehaviorTreeGraph { TreeName = treeName };
+            graph.RootNode = ConvertToGraphNode(_entries[0], null);
+            return graph;
+        }
 
         // ---- Private helpers ----
 
@@ -296,6 +401,85 @@ namespace Fbt.Compiler
         private static string GetDelegateKey(NodeLogicDelegate<TBlackboard, TContext> del)
         {
             return $"{del.Method.DeclaringType!.FullName}.{del.Method.Name}";
+        }
+
+        /// <summary>
+        /// Extracts the field/property name and its byte offset in TBlackboard from a lambda expression.
+        /// </summary>
+        private static (string memberName, nint offset) ExtractFieldInfo<TValue>(
+            Expression<Func<TBlackboard, TValue>> fieldSelector,
+            string parameterName)
+            where TValue : unmanaged
+        {
+            MemberExpression? memberExpr = fieldSelector.Body as MemberExpression;
+            if (memberExpr == null && fieldSelector.Body is UnaryExpression unary)
+                memberExpr = unary.Operand as MemberExpression;
+            if (memberExpr == null)
+                throw new ArgumentException(
+                    "fieldSelector must be a direct field or property access (e.g. dto => dto.FieldName).",
+                    parameterName);
+            string memberName = memberExpr.Member.Name;
+            // Note: TBlackboard should have [StructLayout(LayoutKind.Sequential)] for reliable offsets.
+            nint offset = (nint)Marshal.OffsetOf<TBlackboard>(memberName);
+            return (memberName, offset);
+        }
+
+        /// <summary>
+        /// Recursively converts a BuilderEntry tree into the BehaviorTreeNode graph hierarchy.
+        /// </summary>
+        private static BehaviorTreeNode ConvertToGraphNode(BuilderEntry entry, BehaviorTreeNode? parent)
+        {
+            switch (entry.Node.Type)
+            {
+                case NodeType.Sequence:
+                case NodeType.Selector:
+                case NodeType.Parallel:
+                {
+                    var composite = new CompositeNode
+                    {
+                        Type = entry.Node.Type,
+                        ParallelPolicy = entry.Node.Policy,
+                        VisualId = Guid.Parse(entry.Meta.VisualId),
+                        CustomComment = entry.Meta.CustomComment,
+                        Parent = parent
+                    };
+                    foreach (var childEntry in entry.ChildEntries)
+                        composite.Children.Add(ConvertToGraphNode(childEntry, composite));
+                    return composite;
+                }
+                case NodeType.Inverter:
+                case NodeType.Repeater:
+                case NodeType.Wait:
+                case NodeType.Cooldown:
+                {
+                    float duration = entry.Node.WaitTime > 0f
+                        ? entry.Node.WaitTime
+                        : entry.Node.CooldownTime;
+                    var decorator = new DecoratorNode
+                    {
+                        Type = entry.Node.Type,
+                        Duration = duration,
+                        RepeatCount = entry.Node.RepeatCount,
+                        VisualId = Guid.Parse(entry.Meta.VisualId),
+                        CustomComment = entry.Meta.CustomComment,
+                        Parent = parent
+                    };
+                    if (entry.ChildEntries.Count > 0)
+                        decorator.Child = ConvertToGraphNode(entry.ChildEntries[0], decorator);
+                    return decorator;
+                }
+                default: // Action, Condition
+                    return new LogicNode
+                    {
+                        Type = entry.Node.Type,
+                        DelegateName = entry.Node.MethodName,
+                        TargetDtoType = entry.TargetDtoType ?? string.Empty,
+                        TargetFieldName = entry.TargetFieldName ?? string.Empty,
+                        VisualId = Guid.Parse(entry.Meta.VisualId),
+                        CustomComment = entry.Meta.CustomComment,
+                        Parent = parent
+                    };
+            }
         }
     }
 }
