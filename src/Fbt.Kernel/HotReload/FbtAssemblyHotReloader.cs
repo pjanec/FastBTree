@@ -32,6 +32,7 @@ namespace Fbt.HotReload
         // ---- Private fields ----
         private readonly AssemblyReloadHandler _handler;
         private readonly FileSystemWatcher _watcher;
+        private readonly string _watchDirectory;
         private readonly Timer _debounceTimer;
         private string? _pendingPath;
         private readonly object _debounceLock = new object();
@@ -50,18 +51,52 @@ namespace Fbt.HotReload
         public WeakReference<AssemblyLoadContext>? PreviousAlcRef { get; private set; }
 
         // ---- Constructor ----
+
+        /// <summary>
+        /// Creates a watcher that monitors <paramref name="watchDirectory"/> for any
+        /// <c>*.dll</c> change.  Use the two-parameter overload to watch a specific file.
+        /// </summary>
         public FbtAssemblyHotReloader(string watchDirectory, AssemblyReloadHandler handler)
+            : this(watchDirectory, "*.dll", handler) { }
+
+        /// <summary>
+        /// Creates a watcher that monitors <paramref name="watchDirectory"/> for changes
+        /// to files matching <paramref name="dllFilter"/> (e.g. <c>"Hrot.AI.Doctrines.dll"</c>).
+        /// When <paramref name="dllFilter"/> contains no wildcards the filter acts as an
+        /// exact filename match and <see cref="TriggerInitialLoad"/> can derive the path
+        /// automatically.
+        /// </summary>
+        public FbtAssemblyHotReloader(string watchDirectory, string dllFilter, AssemblyReloadHandler handler)
         {
+            _watchDirectory = watchDirectory;
             _handler = handler;
             _debounceTimer = new Timer(OnDebounceElapsed, null, Timeout.Infinite, Timeout.Infinite);
 
-            _watcher = new FileSystemWatcher(watchDirectory, "*.dll")
+            _watcher = new FileSystemWatcher(watchDirectory, dllFilter)
             {
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
                 EnableRaisingEvents = true,
             };
             _watcher.Created += OnFileChanged;
             _watcher.Changed += OnFileChanged;
+        }
+
+        /// <summary>
+        /// Immediately queues a reload of the watched DLL on a background thread without
+        /// waiting for a file-system change event.  Useful for the initial load at
+        /// application startup.
+        ///
+        /// <para>No-op when the watcher filter contains wildcards (the exact path cannot
+        /// be determined) or when the file does not yet exist.</para>
+        /// </summary>
+        public void TriggerInitialLoad()
+        {
+            string filter = _watcher.Filter;
+            if (filter.IndexOf('*') >= 0 || filter.IndexOf('?') >= 0)
+                return;
+            string path = Path.Combine(_watchDirectory, filter);
+            if (File.Exists(path))
+                ThreadPool.QueueUserWorkItem(_ => LoadAndReload(path));
         }
 
         private void OnFileChanged(object sender, FileSystemEventArgs e)
