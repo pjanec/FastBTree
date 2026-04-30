@@ -29,6 +29,7 @@
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\examples\Fbt.Examples.FluentBTree\Fbt.Examples.FluentBTree.csproj" />
+    <ProjectReference Include="..\..\examples\Fbt.Examples.FluentBTree.Trees\Fbt.Examples.FluentBTree.Trees.csproj" />
   </ItemGroup>
 
 </Project>
