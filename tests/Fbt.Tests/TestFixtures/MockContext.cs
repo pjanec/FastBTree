@@ -5,6 +5,12 @@ namespace Fbt.Tests.TestFixtures
 {
     public struct MockContext : IAIContext
     {
+        // BHU-012: Self and World allow the BTree source generator to assign SharedAi entries
+        // to the (TestBlackboard, MockContext) group. Types are int here (test stand-in for
+        // Entity/EntityRepository in production).
+        public int Self;
+        public int World;
+
         public float DeltaTime { get; set; }
         public int CallCount;
         public int ActionCallCount; // Used in tests

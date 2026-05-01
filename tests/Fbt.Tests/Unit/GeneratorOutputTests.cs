@@ -2,6 +2,7 @@ using Fbt;
 using Fbt.Runtime;
 using Fbt.Tests.TestFixtures;
 using System;
+using System.Linq;
 using System.Reflection;
 using Xunit;
 
@@ -15,8 +16,11 @@ namespace Fbt.Tests.Unit
             var registrarType = Type.GetType("Fbt.Tests.Generated.FbtActionRegistrar, Fbt.Tests");
             Assert.NotNull(registrarType);
 
-            var method = registrarType!.GetMethod("RegisterAll", BindingFlags.Public | BindingFlags.Static);
-            Assert.NotNull(method);
+            // Use GetMethods because multiple RegisterAll overloads exist (one per group).
+            var methods = registrarType!.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == "RegisterAll")
+                .ToArray();
+            Assert.NotEmpty(methods);
         }
 
         [Fact]
