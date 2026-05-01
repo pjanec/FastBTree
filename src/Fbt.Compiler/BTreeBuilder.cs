@@ -39,13 +39,6 @@ namespace Fbt.Compiler
             }
         }
 
-        // Maximum allowed byte size for a blackboard (doctrine parameter) struct used with
-        // expression-binding overloads. Must not exceed BlackboardMemoryLayout.DoctrineParameters
-        // (60 bytes) to prevent overwriting the SoftAdvice and Interrupt regions.
-        // Mirrors BehaviorConstants.MaxDoctrineParamByteSize; duplicated here to keep Fbt.Compiler
-        // free of a direct dependency on Fdp.Toolkits.
-        private const int MaxBlackboardByteSize = 60;
-
         // ---- Fields ----
 
         private readonly List<BuilderEntry> _entries = new List<BuilderEntry>();
@@ -196,13 +189,6 @@ namespace Fbt.Compiler
             [CallerLineNumber] int lineNumber = 0)
             where TValue : unmanaged
         {
-            if (Marshal.SizeOf<TBlackboard>() > MaxBlackboardByteSize)
-                throw new BehaviorTreeBuildException(
-                    $"Blackboard type '{typeof(TBlackboard).Name}' exceeds the maximum allowed parameter size of " +
-                    $"{MaxBlackboardByteSize} bytes ({Marshal.SizeOf<TBlackboard>()} bytes). " +
-                    "Doctrine parameter structs must fit within the DoctrineParameters region of " +
-                    "BlackboardMemoryLayout to prevent overwriting SoftAdvice and Interrupt registers.");
-
             var (memberName, offset) = ExtractFieldInfo(fieldSelector, nameof(fieldSelector));
             string key = $"{logic.Method.DeclaringType!.FullName}.{logic.Method.Name}@{offset}";
 
@@ -244,13 +230,6 @@ namespace Fbt.Compiler
             [CallerLineNumber] int lineNumber = 0)
             where TValue : unmanaged
         {
-            if (Marshal.SizeOf<TBlackboard>() > MaxBlackboardByteSize)
-                throw new BehaviorTreeBuildException(
-                    $"Blackboard type '{typeof(TBlackboard).Name}' exceeds the maximum allowed parameter size of " +
-                    $"{MaxBlackboardByteSize} bytes ({Marshal.SizeOf<TBlackboard>()} bytes). " +
-                    "Doctrine parameter structs must fit within the DoctrineParameters region of " +
-                    "BlackboardMemoryLayout to prevent overwriting SoftAdvice and Interrupt registers.");
-
             var (memberName, offset) = ExtractFieldInfo(fieldSelector, nameof(fieldSelector));
             string key = $"{logic.Method.DeclaringType!.FullName}.{logic.Method.Name}@{offset}";
 
