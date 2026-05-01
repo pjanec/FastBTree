@@ -69,10 +69,12 @@ namespace Fbt.SourceGen
 
             bool hasActionAttr    = symbol.GetAttributes().Any(a => a.AttributeClass?.Name == "BTreeActionAttribute");
             bool hasConditionAttr = symbol.GetAttributes().Any(a => a.AttributeClass?.Name == "BTreeConditionAttribute");
-            bool hasSharedCond    = symbol.GetAttributes().Any(a => IsSharedAiConditionAttr(a));
-            bool hasSharedAction  = symbol.GetAttributes().Any(a => IsSharedAiActionAttr(a));
+            bool hasSharedCond         = symbol.GetAttributes().Any(a => IsSharedAiConditionAttr(a));
+            bool hasSharedAction        = symbol.GetAttributes().Any(a => IsSharedAiActionAttr(a));
+            bool hasSharedHeavy         = symbol.GetAttributes().Any(a => IsSharedAiHeavyActionAttr(a));
+            bool hasSharedHeavyCondition = symbol.GetAttributes().Any(a => IsSharedAiHeavyConditionAttr(a));
 
-            if (!hasActionAttr && !hasConditionAttr && !hasSharedCond && !hasSharedAction) return null;
+            if (!hasActionAttr && !hasConditionAttr && !hasSharedCond && !hasSharedAction && !hasSharedHeavy && !hasSharedHeavyCondition) return null;
 
             // Only generate adapters for publicly accessible methods; private/protected
             // methods (e.g., schema-scanner test fixtures) must not appear in generated code.
@@ -112,13 +114,17 @@ namespace Fbt.SourceGen
                 };
             }
 
-            if (hasSharedCond || hasSharedAction)
+            if (hasSharedCond || hasSharedAction || hasSharedHeavy || hasSharedHeavyCondition)
             {
                 return new BTreeMethodInfo
                 {
                     MethodName = symbol.Name,
                     FullQualifiedMethodName = symbol.ContainingType.ToDisplayString() + "." + symbol.Name,
-                    IsSharedAi = true, IsSharedCondition = hasSharedCond, IsActionKind = hasSharedAction,
+                    IsSharedAi = true,
+                    IsSharedCondition = hasSharedCond,
+                    IsActionKind = hasSharedAction || hasSharedHeavy,
+                    IsSharedHeavy = hasSharedHeavy,
+                    IsSharedHeavyCondition = hasSharedHeavyCondition,
                     Symbol = symbol, WritesChannels = CollectWritesChannels(symbol),
                 };
             }
@@ -129,6 +135,10 @@ namespace Fbt.SourceGen
             => a.AttributeClass?.ToDisplayString() == "Fbt.Kernel.SharedAiConditionAttribute";
         private static bool IsSharedAiActionAttr(AttributeData a)
             => a.AttributeClass?.ToDisplayString() == "Fbt.Kernel.SharedAiActionAttribute";
+        private static bool IsSharedAiHeavyActionAttr(AttributeData a)
+            => a.AttributeClass?.ToDisplayString() == "Fbt.Kernel.SharedAiHeavyActionAttribute";
+        private static bool IsSharedAiHeavyConditionAttr(AttributeData a)
+            => a.AttributeClass?.ToDisplayString() == "Fbt.Kernel.SharedAiHeavyConditionAttribute";
         private static bool IsWritesChannelAttr(AttributeData a)
             => a.AttributeClass?.ToDisplayString() == "Fbt.Kernel.WritesChannelAttribute";
 
@@ -220,11 +230,27 @@ namespace Fbt.SourceGen
                         if (e != null) result.Add(e);
                     }
                 }
-                if (info.IsActionKind)
+                if (info.IsActionKind && !info.IsSharedHeavy)
                 {
                     foreach (var attr in sym.GetAttributes().Where(IsSharedAiActionAttr))
                     {
                         var e = BuildEntry(context, compilation, sym, attr, isCondition: false, info.WritesChannels);
+                        if (e != null) result.Add(e);
+                    }
+                }
+                if (info.IsSharedHeavy)
+                {
+                    foreach (var attr in sym.GetAttributes().Where(IsSharedAiHeavyActionAttr))
+                    {
+                        var e = BuildHeavyEntry(context, compilation, sym, attr, info.WritesChannels);
+                        if (e != null) result.Add(e);
+                    }
+                }
+                if (info.IsSharedHeavyCondition)
+                {
+                    foreach (var attr in sym.GetAttributes().Where(IsSharedAiHeavyConditionAttr))
+                    {
+                        var e = BuildHeavyConditionEntry(context, compilation, sym, attr);
                         if (e != null) result.Add(e);
                     }
                 }
@@ -276,6 +302,121 @@ namespace Fbt.SourceGen
                 CompoundKey  = sym.Name + "@" + offset.Value,
                 IsCondition  = isCondition,
                 WritesChannels = writes,
+            };
+        }
+
+        private static SharedAiEntry? BuildHeavyEntry(
+            SourceProductionContext context,
+            Compilation compilation,
+            IMethodSymbol sym,
+            AttributeData attr,
+            List<int> writes)
+        {
+            // Action attribute arg order: arg0=dtoType, arg1=fieldName, arg2=heavyCompType,
+            //   3-arg: managed;  5-arg: unmanaged (arg3=heavyFieldName, arg4=heavyDtoType)
+            if (attr.ConstructorArguments.Length < 3) return null;
+            var dtoTypeSymbol = attr.ConstructorArguments[0].Value as INamedTypeSymbol;
+            string? fieldName = attr.ConstructorArguments[1].Value as string;
+            var heavyCompSymbol = attr.ConstructorArguments[2].Value as INamedTypeSymbol;
+            if (dtoTypeSymbol == null || string.IsNullOrEmpty(fieldName) || heavyCompSymbol == null) return null;
+
+            int? offset = TryComputeFieldOffset(dtoTypeSymbol, fieldName!, out var fieldTypeSymbol);
+            if (offset == null || fieldTypeSymbol == null)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    BHU003_UnknownField, sym.Locations.FirstOrDefault(),
+                    sym.Name, fieldName, dtoTypeSymbol.ToDisplayString()));
+                return null;
+            }
+
+            bool isHeavyManaged = heavyCompSymbol.IsReferenceType;
+            string heavyCompFqn = heavyCompSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            string? heavyFieldName = null;
+            string? heavyDtoFqn = null;
+
+            if (!isHeavyManaged)
+            {
+                // unmanaged: arg3 = heavyFieldName, arg4 = heavyDtoType
+                if (attr.ConstructorArguments.Length < 5) return null;
+                heavyFieldName = attr.ConstructorArguments[3].Value as string;
+                var heavyDtoSymbol = attr.ConstructorArguments[4].Value as INamedTypeSymbol;
+                if (string.IsNullOrEmpty(heavyFieldName) || heavyDtoSymbol == null) return null;
+                heavyDtoFqn = heavyDtoSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            }
+
+            return new SharedAiEntry
+            {
+                MethodName = sym.Name,
+                FullQualifiedMethodName = sym.ContainingType.ToDisplayString() + "." + sym.Name,
+                FieldTypeFqn = fieldTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                Offset       = offset.Value,
+                CompoundKey  = sym.Name + "@" + offset.Value,
+                IsCondition  = false,
+                IsHeavy      = true,
+                IsHeavyManaged      = isHeavyManaged,
+                HeavyComponentFqn   = heavyCompFqn,
+                HeavyFieldName      = heavyFieldName,
+                HeavyDtoFqn         = heavyDtoFqn,
+                WritesChannels = writes,
+            };
+        }
+
+        private static SharedAiEntry? BuildHeavyConditionEntry(
+            SourceProductionContext context,
+            Compilation compilation,
+            IMethodSymbol sym,
+            AttributeData attr)
+        {
+            // Condition attribute arg order: arg0=dtoType, arg1=fieldName, arg2=heavyCompType,
+            //   arg3=heavyDtoType, arg4=heavyFieldName (optional; present => unmanaged)
+            if (attr.ConstructorArguments.Length < 4) return null;
+            var dtoTypeSymbol   = attr.ConstructorArguments[0].Value as INamedTypeSymbol;
+            string? fieldName   = attr.ConstructorArguments[1].Value as string;
+            var heavyCompSymbol = attr.ConstructorArguments[2].Value as INamedTypeSymbol;
+            var heavyDtoSymbol  = attr.ConstructorArguments[3].Value as INamedTypeSymbol;
+            if (dtoTypeSymbol == null || string.IsNullOrEmpty(fieldName) || heavyCompSymbol == null) return null;
+
+            int? offset = TryComputeFieldOffset(dtoTypeSymbol, fieldName!, out var fieldTypeSymbol);
+            if (offset == null || fieldTypeSymbol == null)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    BHU003_UnknownField, sym.Locations.FirstOrDefault(),
+                    sym.Name, fieldName, dtoTypeSymbol.ToDisplayString()));
+                return null;
+            }
+
+            // heavyFieldName present (arg4) means unmanaged; absence means managed.
+            string? heavyFieldName = null;
+            string? heavyDtoFqn    = null;
+            bool isHeavyManaged    = true;
+            string heavyCompFqn    = heavyCompSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+            if (attr.ConstructorArguments.Length >= 5)
+            {
+                heavyFieldName = attr.ConstructorArguments[4].Value as string;
+                if (!string.IsNullOrEmpty(heavyFieldName))
+                {
+                    // Unmanaged: use the supplied heavyDtoType for the Unsafe.As cast.
+                    isHeavyManaged = false;
+                    if (heavyDtoSymbol == null) return null;
+                    heavyDtoFqn = heavyDtoSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                }
+            }
+
+            return new SharedAiEntry
+            {
+                MethodName = sym.Name,
+                FullQualifiedMethodName = sym.ContainingType.ToDisplayString() + "." + sym.Name,
+                FieldTypeFqn = fieldTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                Offset       = offset.Value,
+                CompoundKey  = sym.Name + "@" + offset.Value,
+                IsCondition  = true,
+                IsHeavy      = true,
+                IsHeavyManaged    = isHeavyManaged,
+                HeavyComponentFqn = heavyCompFqn,
+                HeavyFieldName    = heavyFieldName,
+                HeavyDtoFqn       = heavyDtoFqn,
+                WritesChannels    = new List<int>(),
             };
         }
 
@@ -501,6 +642,12 @@ namespace Fbt.SourceGen
 
         private static void EmitSharedAiAdapter(StringBuilder sb, SharedAiEntry entry, string tb, string tc)
         {
+            if (entry.IsHeavy)
+            {
+                EmitHeavySharedAiAdapter(sb, entry, tb, tc);
+                return;
+            }
+
             if (entry.WritesChannels.Count == 0)
             {
                 string regMethod = entry.IsCondition ? "RegisterCondition" : "Register";
@@ -527,6 +674,45 @@ namespace Fbt.SourceGen
                 sb.AppendLine("                    return status;");
                 sb.AppendLine("                });");
             }
+        }
+
+        private static void EmitHeavySharedAiAdapter(StringBuilder sb, SharedAiEntry entry, string tb, string tc)
+        {
+            bool isCondition = entry.IsCondition;
+            bool hasChannels = entry.WritesChannels.Count > 0;
+            string regMethod = isCondition ? "RegisterCondition" : "Register";
+            sb.AppendLine("            registry." + regMethod + "(\"" + entry.CompoundKey + "\",");
+            sb.AppendLine("                static (ref " + tb + " bb, ref global::Fbt.BehaviorTreeState st, ref " + tc + " ctx, int pi) =>");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    ref var field = ref Unsafe.As<byte, " + entry.FieldTypeFqn + ">(");
+            sb.AppendLine("                        ref Unsafe.AddByteOffset(ref Unsafe.As<" + tb + ", byte>(ref bb), (nint)" + entry.Offset + "));");
+            if (entry.IsHeavyManaged)
+            {
+                // Managed component: fetch via GetComponent<T> (returns the class instance)
+                sb.AppendLine("                    var heavy = ctx.World.GetComponent<" + entry.HeavyComponentFqn + ">(ctx.Self);");
+                if (isCondition)
+                    sb.AppendLine("                    return global::" + entry.FullQualifiedMethodName + "(ref field, heavy, ctx.Self, ctx.World) ? global::Fbt.NodeStatus.Success : global::Fbt.NodeStatus.Failure;");
+                else
+                    sb.AppendLine("                    var status = global::" + entry.FullQualifiedMethodName + "(ref field, heavy, ctx.Self, ctx.World);");
+            }
+            else
+            {
+                // Unmanaged component: fetch via GetComponentRW<T>, then project bytes via Unsafe.As.
+                // Assumption: the heavy DTO starts at offset 0 of the component (true for Blackboard1024.Memory).
+                sb.AppendLine("                    ref var heavyComp = ref ctx.World.GetComponentRW<" + entry.HeavyComponentFqn + ">(ctx.Self);");
+                sb.AppendLine("                    ref var heavy = ref Unsafe.As<byte, " + entry.HeavyDtoFqn + ">(");
+                sb.AppendLine("                        ref Unsafe.AddByteOffset(ref Unsafe.As<" + entry.HeavyComponentFqn + ", byte>(ref heavyComp), (nint)0));");
+                if (isCondition)
+                    sb.AppendLine("                    return global::" + entry.FullQualifiedMethodName + "(ref field, ref heavy, ctx.Self, ctx.World) ? global::Fbt.NodeStatus.Success : global::Fbt.NodeStatus.Failure;");
+                else
+                    sb.AppendLine("                    var status = global::" + entry.FullQualifiedMethodName + "(ref field, ref heavy, ctx.Self, ctx.World);");
+            }
+            if (!isCondition)
+            {
+                if (hasChannels) EmitChannelClear(sb, entry.WritesChannels, "                    ");
+                sb.AppendLine("                    return status;");
+            }
+            sb.AppendLine("                });");
         }
 
         private static void EmitChannelClear(StringBuilder sb, List<int> channels, string indent)
@@ -575,7 +761,7 @@ namespace Fbt.SourceGen
         public bool IsActionKind { get; set; }
         public bool IsSharedAi { get; set; }
         public bool IsSharedCondition { get; set; }
-        public IMethodSymbol? Symbol { get; set; }
+        public bool IsSharedHeavy { get; set; }        public bool IsSharedHeavyCondition { get; set; }        public IMethodSymbol? Symbol { get; set; }
         public List<int> WritesChannels { get; set; } = new List<int>();
     }
 
@@ -587,6 +773,12 @@ namespace Fbt.SourceGen
         public int Offset { get; set; }
         public string CompoundKey { get; set; } = "";
         public bool IsCondition { get; set; }
+        // Heavy-action fields (populated only when IsHeavy == true)
+        public bool IsHeavy { get; set; }
+        public bool IsHeavyManaged { get; set; }
+        public string? HeavyComponentFqn { get; set; }
+        public string? HeavyFieldName { get; set; }
+        public string? HeavyDtoFqn { get; set; }
         public List<int> WritesChannels { get; set; } = new List<int>();
     }
 
