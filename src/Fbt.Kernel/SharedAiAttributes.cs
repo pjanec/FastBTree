@@ -3,7 +3,7 @@ using System;
 namespace Fbt.Kernel
 {
     /// <summary>
-    /// Marks a static method as a shared AI condition usable from both BTree and HSM doctrines.
+    /// Marks a static method as a shared AI condition usable from both BTree and HSM behaviors.
     /// Signature: static bool MethodName(ref TValue dto, Entity self, EntityRepository repo)
     /// TValue must be the type of the field <see cref="FieldName"/> on <see cref="DtoType"/>.
     /// The source generator computes the byte offset of that field within the parent DTO via
@@ -27,7 +27,7 @@ namespace Fbt.Kernel
     }
 
     /// <summary>
-    /// Marks a static method as a shared AI action usable from both BTree and HSM doctrines.
+    /// Marks a static method as a shared AI action usable from both BTree and HSM behaviors.
     /// Signature: static NodeStatus MethodName(ref TValue dto, Entity self, EntityRepository repo)
     /// HSM adapter discards the NodeStatus return (HSM is event-driven, not polling).
     /// Apply multiple times on the same method to share it across different parent DTOs.

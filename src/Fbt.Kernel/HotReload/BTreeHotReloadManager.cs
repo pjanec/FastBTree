@@ -13,7 +13,7 @@ namespace Fbt.HotReload
     /// <summary>
     /// Manages hot reload of behavior tree blobs.
     /// Tracks registered blobs and computes reload results by comparing structure/param hashes.
-    /// DoctrineRegistry patching is the caller's responsibility.
+    /// BehaviorRegistry patching is the caller's responsibility.
     /// </summary>
     public class BTreeHotReloadManager
     {

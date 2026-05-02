@@ -61,7 +61,7 @@ namespace Fbt.HotReload
 
         /// <summary>
         /// Creates a watcher that monitors <paramref name="watchDirectory"/> for changes
-        /// to files matching <paramref name="dllFilter"/> (e.g. <c>"Hrot.AI.Doctrines.dll"</c>).
+        /// to files matching <paramref name="dllFilter"/> (e.g. <c>"Hrot.AI.Behaviors.dll"</c>).
         /// When <paramref name="dllFilter"/> contains no wildcards the filter acts as an
         /// exact filename match and <see cref="TriggerInitialLoad"/> can derive the path
         /// automatically.
